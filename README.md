@@ -232,10 +232,6 @@ Detailed documentation is in the `docs/` directory:
 - [utils.py](docs/modules/utils.md) - Quaternion math and utilities
 - [environment_builder.py](docs/modules/environment_builder.md) - RocketPy Environment setup
 
-## License
-
-TFG (Trabajo de Fin de Grado) - University project.
-
 ## Author
 
-XAlex - University of León, 2026
+Alejandro Gil Getino - Universidad de León, 2026
