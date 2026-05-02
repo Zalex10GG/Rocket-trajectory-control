@@ -8,15 +8,19 @@ class FinAdapter:
         
         actuation_params: dict from rocket TOML (case_data["rocket_params"]["control_actuation"])
         """
-        self.controller_state = controller_state
+        self.controller_state = controller_state or {}
         self.params = actuation_params
         
         # Pull coefficients from params
         self.cN_delta = self.params.get("cN_delta_per_rad", 0.0)
-        self.cm_delta = self.params.get("cm_delta_per_rad", 0.0)
         self.cy_delta = self.params.get("cy_delta_per_rad", 0.0)
-        self.cn_delta = self.params.get("cn_moment_delta_per_rad", 0.0)
         self.cl_delta = self.params.get("cl_delta_per_rad", 0.0)
+        self.k_drag_induced = self.params.get("k_drag_induced", 0.0)
+        
+        # Passive stability term
+        # If the fins are controlled, we need to include their passive lift
+        # when they are at an angle of attack (alpha/beta) but with delta=0.
+        self.clalpha_fins = self.params.get("clalpha_fins", 0.0)
         
     def get_current_deltas(self):
         """Helper to get the latest deltas calculated by the controller_function."""
@@ -26,52 +30,38 @@ class FinAdapter:
     def cl_coeff(self, alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate):
         """
         Lift coefficient (cL) from fin deflection.
-        RocketPy GenericSurface expects cL, cQ, cD in aerodynamic frame.
-        For a + configuration (Leon 2):
-        delta_pitch = (d2 - d4)/2
-        delta_yaw = (d1 - d3)/2
-        
-        cL corresponds to -Cy in RocketPy body frame? No, GenericSurface uses:
-        R1, R2, R3 = rotation_matrix @ Vector([side, -lift, -drag])
-        where side=cQ, lift=cL, drag=cD.
-        
-        In body frame (Leon 2):
-        Normal force (Body Y) ~ cN_delta * delta_pitch
-        Side force (Body X) ~ cy_delta * delta_yaw
-        
-        GenericSurface converts (cQ, -cL, -cD) from aero frame to body frame.
-        At low alpha/beta, cL is ~ Normal force, cQ is ~ Side force.
         """
         deltas = self.get_current_deltas()
         delta_pitch = (deltas[1] - deltas[3]) / 2.0
-        # cL is lift, which in RocketPy aero frame points 'up' (against gravity if vertical).
-        # Normal force in Body Y is cN_delta * delta_pitch.
-        # At zero alpha/beta, R2 = -lift = -cL. So cL = -NormalForce.
-        return -self.cN_delta * delta_pitch
+        
+        # We only model the INCREMENTAL control force here.
+        # Passive stability is handled by the TrapezoidalFins object in RocketPy.
+        return self.cN_delta * delta_pitch
 
     def cq_coeff(self, alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate):
         """Side force coefficient (cQ)."""
         deltas = self.get_current_deltas()
         delta_yaw = (deltas[0] - deltas[2]) / 2.0
-        # R1 = side = cQ. Normal force in Body X is cy_delta * delta_yaw.
+        
+        # We only model the INCREMENTAL control force here.
         return self.cy_delta * delta_yaw
 
     def cd_coeff(self, alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate):
-        """Drag coefficient (cD)."""
-        # Induced drag can be added here if needed: k * (cL^2 + cQ^2)
-        return 0.0
+        """Drag coefficient (cD) including induced drag from control surfaces."""
+        cL = self.cl_coeff(alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate)
+        cQ = self.cq_coeff(alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate)
+        return self.k_drag_induced * (cL**2 + cQ**2)
 
     def cm_coeff(self, alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate):
         """Pitch moment coefficient (cm)."""
-        deltas = self.get_current_deltas()
-        delta_pitch = (deltas[1] - deltas[3]) / 2.0
-        return self.cm_delta * delta_pitch
+        # User requested to use normal force and let RocketPy calculate moment.
+        # So we return 0 here to avoid double counting.
+        return 0.0
 
     def cn_coeff(self, alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate):
         """Yaw moment coefficient (cn)."""
-        deltas = self.get_current_deltas()
-        delta_yaw = (deltas[0] - deltas[2]) / 2.0
-        return self.cn_delta * delta_yaw
+        # User requested to use normal force and let RocketPy calculate moment.
+        return 0.0
 
     def cl_roll_coeff(self, alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate):
         """Roll moment coefficient (cl)."""
