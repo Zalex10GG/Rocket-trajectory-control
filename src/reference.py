@@ -17,10 +17,14 @@ def load_reference_trajectory(path):
     
     for col in df.columns:
         if col != 'time_s':
+            # Use 'constant' fill_value for out of bounds instead of 'extrapolate'
+            # to avoid diverging references. For z_enu_m specifically, we might 
+            # want to stay at the last value.
             reference['interpolators'][col] = interp1d(
                 times, df[col].values, 
                 kind='linear', 
-                fill_value='extrapolate'
+                bounds_error=False,
+                fill_value=(df[col].values[0], df[col].values[-1])
             )
     
     # Add a separate peak finder for the reference

@@ -17,20 +17,33 @@ def fin_controller(t, state, controller, config, reference):
     # Leon 2 burn time ~3.5s. Start control after burn and at safe height.
     # state[0:3] is ENU ASL from RocketPy internal integration
     z_asl = pos[2]
+    # Use config.elevation_asl_m consistently
     z_local = z_asl - config.elevation_asl_m
     vz = vel[2]
     
-    if t < config.control_start_delay_s or z_local < config.control_start_min_height_above_launch_m or vz <= 0:
-        deltas = np.zeros(4)
-        controller["deltas_history"][float(t)] = deltas
-        return deltas
-
     # 3. Guidance: Trajectory tracking (Local ENU)
     from src.reference import sample_reference
     ref_sample = sample_reference(reference, t)
     pos_ref = ref_sample['position_enu_m'] # Reference is already local ENU (0,0,0)
     vel_ref = ref_sample['velocity_enu_m_s']
+
+    # Control cutoff logic: 
+    # - If t is beyond reference time (assuming reference['time_s'][-1] is the limit)
+    # - If vz <= 0 (reached apogee)
+    # - If reference velocity is zero or negative (descending reference)
+    ref_time_limit = reference['time_s'][-1]
     
+    if (t < config.control_start_delay_s or 
+        z_local < config.control_start_min_height_above_launch_m or 
+        vz <= 0 or 
+        t > ref_time_limit or 
+        vel_ref[2] <= 0):
+        
+        deltas = np.zeros(4)
+        controller["deltas_history"][float(t)] = deltas
+        # Reset integral if needed, or just return
+        return deltas
+
     # Normalize current position to local ENU for tracking
     pos_local = pos - np.array([0, 0, config.elevation_asl_m])
     
@@ -60,7 +73,8 @@ def fin_controller(t, state, controller, config, reference):
     controller["previous_error"] = error_vec
     
     # Roll damper: dampens p (roll rate) toward 0
-    u_roll = -config.Kp_roll * w_body[0]
+    # Also tries to align roll to 0 if q_error[1] is significant
+    u_roll = config.Kp_attitude_roll * error_vec[0] - config.Kd_roll * w_body[0]
     
     # Pitch/Yaw control outputs (virtual control effort)
     u_pitch = (config.Kp_attitude * error_vec[1] + 
@@ -83,7 +97,13 @@ def fin_controller(t, state, controller, config, reference):
        -u_pitch + u_roll
     ])
     
-    # 7. Saturate
+    # 7. Actuator limits (Delta max and Delta dot)
+    # delta_dot_max_rad_s
+    prev_deltas = controller.get("current_deltas", np.zeros(4))
+    max_step = config.delta_dot_max_rad_s * dt
+    deltas = np.clip(deltas, prev_deltas - max_step, prev_deltas + max_step)
+    
+    # delta_max_rad
     deltas = np.clip(deltas, -config.delta_max_rad, config.delta_max_rad)
     
     # Update current state for GenericSurface adapter

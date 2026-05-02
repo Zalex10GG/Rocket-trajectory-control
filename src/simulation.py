@@ -1,10 +1,32 @@
+"""
+RocketPy-based simulation for controlled rocket flight.
+
+LIMITATION KNOWN: RocketPy v1.12.1 does NOT expose a public API for closed-loop
+fin control. The library only supports:
+- Passive aerodynamic surfaces (fixed geometry)
+- AirBrakes (simple deployment profile, not arbitrary closed-loop)
+
+The internal infrastructure used below (_Controller, rocket._add_controllers) is
+private and may break between versions. This is a known limitation tracked in:
+- RocketPy Issue #915: "Active fins"
+- RocketPy Issue #917: "Per-Step Data & Individual Fin Control"
+
+A public API for active fin control has been requested but is not yet available
+as of v1.12.1. This solution uses private infrastructure and may require
+updates when RocketPy releases a public control API.
+
+Reference: https://github.com/RocketPy-Team/RocketPy/issues/917
+"""
+
 import numpy as np
 import pandas as pd
 import json
 import os
 from datetime import datetime
 from rocketpy import Flight
-from rocketpy.control.controller import _Controller
+
+# NOTE: Private API usage - see module docstring
+from rocketpy.control.controller import _Controller  # noqa: API private
 import src.plots as plots
 from src.controllers import fin_controller
 
@@ -20,11 +42,14 @@ def simulate_controlled_flight(rocket, environment, reference, controller, confi
         return None # Controller function should return None
 
     # 2. Add controller to rocket via private infrastructure
+    # Clear existing controllers to avoid accumulation
+    rocket._controllers = [] 
+    
     # No AirBrakes involved. We pass the GenericSurface as an interactive object if needed.
     # We iterate over aerodynamic_surfaces (which are component_tuples) to find our surface.
     control_surf = None
     for item in rocket.aerodynamic_surfaces:
-        if hasattr(item.component, 'name') and item.component.name == "Control Fins":
+        if hasattr(item.component, 'name') and item.component.name == "Control Fin Deflection Increment":
             control_surf = item.component
             break
     
@@ -92,13 +117,23 @@ def simulate_controlled_flight(rocket, environment, reference, controller, confi
     
     return history
 
-def export_results(flight_history, reference, metrics, config):
+def export_results(flight_history, reference, metrics, config, rocket=None, components=None):
     """
     Saves results to results/<run_id>/
     """
-    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if not config.save_results:
+        print("Skipping results export (config.save_results is False)")
+        return None
+
+    # Resolve run_id with microsecond precision to avoid collisions
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     run_dir = os.path.join(config.results_dir, run_id)
     os.makedirs(run_dir, exist_ok=True)
+    
+    # Export rocket creation artifacts if provided
+    if rocket and components:
+        from src.rocket_builder import export_rocket_creation_artifacts
+        export_rocket_creation_artifacts(rocket, components, run_dir, config)
     
     # Save metrics
     with open(os.path.join(run_dir, "metrics.json"), "w") as f:
