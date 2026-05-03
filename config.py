@@ -1,5 +1,3 @@
-import os
-
 def load_config():
     """
     Returns execution parameters for the experiment.
@@ -24,13 +22,11 @@ def load_config():
     
     # Control activation
     config.control_start_delay_s = 3.0
-    config.control_start_min_height_above_launch_m = 11.0 # rail_length (6) + 5
-    
+    config.safety_margin_m = 5.0
+    # config.control_start_min_height_above_launch_m is derived in build_rocket
+
     # Control cutoff
     config.apogee_control_cutoff_delay_s = 0.5
-    
-    # Actuation limits
-    config.delta_max_rad = 0.26 # 15 degrees
     
     # Paths
     config.reference_path = "data/trajectory/vertical.csv"

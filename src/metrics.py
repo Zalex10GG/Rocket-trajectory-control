@@ -1,6 +1,6 @@
 import numpy as np
 
-def compute_tracking_metrics(flight_history, reference, config):
+def compute_tracking_metrics(flight_history, reference, config, controller_state=None):
     """
     Computes quantitative tracking performance metrics for trajectory tracking.
     Focuses on the control phase window for performance metrics.
@@ -56,9 +56,9 @@ def compute_tracking_metrics(flight_history, reference, config):
     # Calculate saturation ratio (in control phase)
     sat_count = 0
     total_ctrl_samples = len(deltas)
-    if total_ctrl_samples > 0:
+    if total_ctrl_samples > 0 and controller_state and "delta_max_rad" in controller_state:
         # Consider saturated if ANY fin is at > 95% of max
-        sat_mask = np.any(np.abs(deltas) >= 0.95 * config.delta_max_rad, axis=1)
+        sat_mask = np.any(np.abs(deltas) >= 0.95 * controller_state["delta_max_rad"], axis=1)
         sat_count = np.sum(sat_mask)
         metrics["fin_saturation_ratio"] = float(sat_count / total_ctrl_samples)
     else:

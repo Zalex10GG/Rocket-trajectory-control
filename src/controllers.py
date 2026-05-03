@@ -1,11 +1,12 @@
 import numpy as np
 import src.utils as utils
 
-def fin_controller(t, state, controller, config, reference):
+def fin_controller(t, state, controller, config, reference, gravity):
     """
     Callback for RocketPy GenericSurface integration.
     t: time (s)
     state: [x, y, z, vx, vy, vz, q0, q1, q2, q3, wx, wy, wz] (ENU)
+    gravity: local gravity magnitude (m/s^2) - Required, must be provided by simulation.
     """
     # 1. State extraction
     pos = np.array(state[0:3])
@@ -53,7 +54,7 @@ def fin_controller(t, state, controller, config, reference):
     accel_cmd_enu = config.Kp_guidance * (pos_ref - pos_local) + config.Kd_guidance * (vel_ref - vel)
     # Add vertical component to bias the pointing vector upwards
     # This ensures the rocket maintains an upward orientation during tracking
-    accel_cmd_enu += np.array([0, 0, 9.81]) 
+    accel_cmd_enu += np.array([0, 0, gravity]) 
     
     # 4. Desired Attitude (ENU -> Body)
     # This aligns the rocket nose with the commanded acceleration vector
@@ -74,7 +75,7 @@ def fin_controller(t, state, controller, config, reference):
     
     # Roll damper: dampens p (roll rate) toward 0
     # Also tries to align roll to 0 if q_error[1] is significant
-    u_roll = config.Kp_attitude_roll * error_vec[0] - config.Kd_roll * w_body[0]
+    u_roll = config.Kp_roll * error_vec[0] - config.Kd_attitude * w_body[0]
     
     # Pitch/Yaw control outputs (virtual control effort)
     u_pitch = (config.Kp_attitude * error_vec[1] + 
@@ -98,13 +99,20 @@ def fin_controller(t, state, controller, config, reference):
     ])
     
     # 7. Actuator limits (Delta max and Delta dot)
-    # delta_dot_max_rad_s
+    # Use limits from controller state (passed from TOML via FinAdapter)
+    try:
+        delta_max = controller["delta_max_rad"]
+        delta_dot_max = controller["delta_dot_max_rad_s"]
+    except KeyError as e:
+        raise RuntimeError(f"Controller state missing required limit: {e}. "
+                           "Ensure rocket TOML defines control_actuation limits.") from e
+
     prev_deltas = controller.get("current_deltas", np.zeros(4))
-    max_step = config.delta_dot_max_rad_s * dt
+    max_step = delta_dot_max * dt
     deltas = np.clip(deltas, prev_deltas - max_step, prev_deltas + max_step)
     
     # delta_max_rad
-    deltas = np.clip(deltas, -config.delta_max_rad, config.delta_max_rad)
+    deltas = np.clip(deltas, -delta_max, delta_max)
     
     # Update current state for GenericSurface adapter
     controller["current_deltas"] = deltas
@@ -145,50 +153,3 @@ def compute_desired_attitude(a_cmd_enu, config):
     q_ref = utils.quaternion_from_vectors(direction, np.array([0, 0, 1]))
     return q_ref
 
-# Unused in main loop, preserved for reference
-# def update_attitude_pid(state, q_ref, controller_state, config):
-#     """
-#     Attitude PID in Body frame.
-#     q_error = q_ref * conjugate(q_real)
-#     H4: mapping e_roll=x, e_pitch=y, e_yaw=z
-#     """
-#     q_real = state['attitude_quaternion'] # [w, x, y, z] ENU -> Body
-#     
-#     # H4: q_error = q_ref * conjugate(q_real)
-#     q_error = utils.quaternion_multiply(q_ref, utils.quaternion_conjugate(q_real))
-#     
-#     # H4: PID vector-part mapping: e_roll=x, e_pitch=y, e_yaw=z
-#     # q_error = [w, x, y, z]
-#     e_roll = q_error[1]
-#     e_pitch = q_error[2]
-#     e_yaw = q_error[3]
-#     
-#     error_vec = np.array([e_roll, e_pitch, e_yaw])
-#     
-#     dt = config.control_dt_s
-#     
-#     # Update integral
-#     controller_state["integral_error"] += error_vec * dt
-#     
-#     # Derivative
-#     derivative = (error_vec - controller_state["previous_error"]) / dt
-#     
-#     # PID output (virtual commands)
-#     # Using separate gains if needed, but for V1 we use same for pitch/yaw
-#     u_roll = -config.Kp_roll * state['body_rates_rad_s'][0] # Simple damper
-#     
-#     u_pitch = (config.Kp_attitude * e_pitch + 
-#                config.Ki_attitude * controller_state["integral_error"][1] + 
-#                config.Kd_attitude * derivative[1])
-#                
-#     u_yaw = (config.Kp_attitude * e_yaw + 
-#              config.Ki_attitude * controller_state["integral_error"][2] + 
-#              config.Kd_attitude * derivative[2])
-#     
-#     controller_state["previous_error"] = error_vec
-#     
-#     return {
-#         "u_pitch": u_pitch,
-#         "u_yaw": u_yaw,
-#         "u_roll": u_roll
-#     }

@@ -20,8 +20,16 @@ def quaternion_from_vectors(v_from, v_to):
     Returns a quaternion representing the rotation from v_from to v_to.
     Both vectors must be normalized.
     """
-    v_from = v_from / np.linalg.norm(v_from)
-    v_to = v_to / np.linalg.norm(v_to)
+    norm_from = np.linalg.norm(v_from)
+    norm_to = np.linalg.norm(v_to)
+    
+    if norm_from < 1e-9:
+        raise ValueError("v_from vector is too small (near zero norm).")
+    if norm_to < 1e-9:
+        raise ValueError("v_to vector is too small (near zero norm).")
+
+    v_from = v_from / norm_from
+    v_to = v_to / norm_to
     
     dot = np.dot(v_from, v_to)
     if dot > 0.999999:

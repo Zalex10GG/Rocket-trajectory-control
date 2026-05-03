@@ -15,7 +15,7 @@ length_m = 2.556
 center_of_mass_without_motor_m = 1.29
 inertia_xx_kg_m2 = 0.08
 inertia_yy_kg_m2 = 0.08
-inertia_zz_kg_m2 = 0.0
+inertia_zz_kg_m2 = 0.01
 coordinate_system_orientation = "tail_to_nose"
 
 [fins]

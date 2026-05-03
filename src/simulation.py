@@ -24,6 +24,7 @@ import json
 import os
 from datetime import datetime
 from rocketpy import Flight
+from src.constants import CONTROL_SURFACE_NAME
 
 # NOTE: Private API usage - see module docstring
 from rocketpy.control.controller import _Controller  # noqa: API private
@@ -35,10 +36,15 @@ def simulate_controlled_flight(rocket, environment, reference, controller, confi
     Executes the truthful closed-loop flight simulation using RocketPy's private controller infrastructure.
     """
     # 1. Define controller callback
+    # Get gravity at the launch site. 
+    # elevation_asl_m is the site altitude. RocketPy environment.gravity(height)
+    # takes height above sea level if height > 0 usually, but let's be explicit.
+    gravity_val = environment.gravity(environment.elevation) 
+
     def controller_callback(t, sampling_rate, state, state_history, observed_vars, interactive_objs, sensors, env):
         # RocketPy state: [x, y, z, vx, vy, vz, q0, q1, q2, q3, wx, wy, wz]
         # Same as our fin_controller expectation.
-        fin_controller(t, state, controller, config, reference)
+        fin_controller(t, state, controller, config, reference, gravity=gravity_val)
         return None # Controller function should return None
 
     # 2. Add controller to rocket via private infrastructure
@@ -49,7 +55,7 @@ def simulate_controlled_flight(rocket, environment, reference, controller, confi
     # We iterate over aerodynamic_surfaces (which are component_tuples) to find our surface.
     control_surf = None
     for item in rocket.aerodynamic_surfaces:
-        if hasattr(item.component, 'name') and item.component.name == "Control Fin Deflection Increment":
+        if hasattr(item.component, 'name') and item.component.name == CONTROL_SURFACE_NAME:
             control_surf = item.component
             break
     
@@ -117,7 +123,7 @@ def simulate_controlled_flight(rocket, environment, reference, controller, confi
     
     return history
 
-def export_results(flight_history, reference, metrics, config, rocket=None, components=None):
+def export_results(flight_history, reference, metrics, config, case_data, rocket=None, components=None):
     """
     Saves results to results/<run_id>/
     """
@@ -133,7 +139,7 @@ def export_results(flight_history, reference, metrics, config, rocket=None, comp
     # Export rocket creation artifacts if provided
     if rocket and components:
         from src.rocket_builder import export_rocket_creation_artifacts
-        export_rocket_creation_artifacts(rocket, components, run_dir, config)
+        export_rocket_creation_artifacts(rocket, components, run_dir, config, case_data)
     
     # Save metrics
     with open(os.path.join(run_dir, "metrics.json"), "w") as f:

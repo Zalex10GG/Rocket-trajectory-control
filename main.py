@@ -14,7 +14,7 @@ def main() -> None:
     
     # 1. Configuration and Data Loading
     config = cfg.load_config()
-    case_data = init.load_initial_case_data()
+    case_data = init.load_initial_case_data(config)
 
     # 2. Loading reference
     print("Loading reference...")
@@ -43,10 +43,10 @@ def main() -> None:
 
     # 5. Analysis and Results
     print("Computing metrics...")
-    metrics = metrics_mod.compute_tracking_metrics(flight_history, reference, config)
+    metrics = metrics_mod.compute_tracking_metrics(flight_history, reference, config, controller_state=controller)
     
     print("Generating plots and exporting results...")
-    sim.export_results(flight_history, reference, metrics, config, rocket=rocket, components=components)
+    sim.export_results(flight_history, reference, metrics, config, case_data, rocket=rocket, components=components)
     
     print("--- Done ---")
 
