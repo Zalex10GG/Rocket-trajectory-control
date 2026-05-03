@@ -1,6 +1,8 @@
-# Module: `calculate_control_coefficients.py`
+# Module: `calculate_control_coefficients.py` (Historical)
 
 ## Overview
+
+**Note**: This is a historical/utility document. The actual aerodynamic coefficients for Leon 2 are already computed and stored in `data/rockets/leon_2.toml`.
 
 Standalone script to compute the incremental aerodynamic coefficients for fin deflection control using the Diederich theory and body-fin interference factors. It reads rocket geometry from a TOML file, calculates the coefficients, and updates the `[control_actuation]` section in-place while preserving comments and formatting.
 

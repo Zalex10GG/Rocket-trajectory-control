@@ -31,7 +31,7 @@ uv --version
 ### 1. Clone/Navigate to Project
 
 ```bash
-cd C:\Users\xalex\Desktop\UNI\4_anho\TFG\Rocket_control
+cd C:\Users\xalex\Desktop\UNI\4_anho\TFG\Rocket-trajectory-control
 ```
 
 ### 2. Sync Dependencies
@@ -44,13 +44,13 @@ uv sync
 
 This will:
 - Create a virtual environment in `.venv/`
-- Install dependencies from `pyproject.toml`:
+- Install dependencies from `pyproject.toml` (versions locked in `uv.lock`):
   - `rocketpy==1.12.1` (6-DOF simulation)
-  - `numpy==2.4.4` (numerical computations)
-  - `scipy==1.17.1` (interpolation, integration)
-  - `matplotlib==3.10.9` (plotting)
-  - `pandas==3.0.2` (data I/O)
-  - `toml==0.10.2` (TOML parsing)
+  - `numpy` (numerical computations)
+  - `scipy` (interpolation, integration)
+  - `matplotlib` (plotting)
+  - `pandas` (data I/O)
+  - `toml` (TOML parsing)
 
 ### 3. Verify Data Files
 
@@ -58,7 +58,7 @@ Ensure the following input files exist:
 
 ```
 data/
-├── rockets/leon_2.toml          # ✓ Rocket geometry and control params
+├── rockets/leon_2.toml          # ✓ Rocket geometry, motor params, control actuation
 ├── motors/cesaroni_pro75_3g_3727l1050.csv  # ✓ Motor thrust curve
 ├── drag/leon_2_drag.csv         # ✓ Drag coefficient vs Mach
 └── trajectory/vertical.csv      # ✗ Generate if missing
@@ -67,7 +67,7 @@ data/
 If `data/trajectory/vertical.csv` is missing, generate it:
 
 ```bash
-uv run python -c "from src.gen_reference import generate_vertical_reference; generate_vertical_reference('data/trajectory/vertical.csv', max_altitude=1000, duration=20)"
+uv run py -c "from src.gen_reference import generate_vertical_reference; generate_vertical_reference('data/trajectory/vertical.csv', max_altitude=1000, duration=20)"
 ```
 
 ## Running the Simulation
@@ -76,6 +76,12 @@ uv run python -c "from src.gen_reference import generate_vertical_reference; gen
 
 ```bash
 uv run main.py
+```
+
+Or using the installed entrypoint:
+
+```bash
+uv run rocket-control
 ```
 
 ### Expected Output
@@ -91,6 +97,7 @@ Computing metrics...
 Generating plots and exporting results...
 Plotting suite updated. 7 analysis plots generated in results/20260429_143052/plots
 Results exported to results/20260429_143052
+Artifacts exported (manifest.json, effective_config.json, rocket_definition.toml, rocket_artifacts.json)
 --- Done ---
 ```
 
@@ -127,10 +134,10 @@ config.Kd_guidance = 0.5    # Derivative gain for velocity error
 # Attitude PID gains (pitch/yaw)
 config.Kp_attitude = 5.0    # Proportional gain
 config.Ki_attitude = 0.1    # Integral gain
-config.Kd_attitude = 1.0    # Derivative gain
+config.Kd_attitude = 1.0    # Derivative gain (also used for roll damping)
 
-# Roll damping
-config.Kp_roll = 0.5        # Roll rate damping gain
+# Roll control (combined with Kd_attitude for damping)
+config.Kp_roll = 0.5        # Roll error and rate damping gain
 ```
 
 ### Timing Parameters
@@ -139,14 +146,9 @@ config.Kp_roll = 0.5        # Roll rate damping gain
 config.control_dt_s = 0.02           # Control loop period (50 Hz)
 config.max_time_s = 600.0            # Max simulation time (s)
 config.control_start_delay_s = 3.0   # Wait time before control starts (s)
-config.control_start_min_height_above_launch_m = 11.0  # Min height for control (m)
+config.safety_margin_m = 5.0        # Added to rail_length for min height
+# config.control_start_min_height_above_launch_m is DERIVED in rocket_builder.py
 config.apogee_control_cutoff_delay_s = 0.5  # Control cutoff after apogee (s)
-```
-
-### Actuation Limits
-
-```python
-config.delta_max_rad = 0.26  # Max fin deflection (rad) ≈ 15°
 ```
 
 ### Launch Site
@@ -157,7 +159,7 @@ config.longitude = -6.2713407985      # Launch longitude (deg)
 config.elevation_asl_m = 1000.0       # Launch elevation ASL (m)
 config.rail_length_m = 6.0            # Launch rail length (m)
 config.heading_deg = 0.0              # Launch heading (deg, 0=North)
-config.inclination_deg = 90.0         # Launch inclination (deg, 90=vertical)
+config.inclination_deg = 90.0          # Launch inclination (deg, 90=vertical)
 ```
 
 ### Output Options
@@ -173,6 +175,27 @@ config.show_plots = False     # Display plots interactively (slows down executio
 config.reference_path = "data/trajectory/vertical.csv"
 config.results_dir = "results"
 ```
+
+### Actuation Limits
+
+**Note**: Actuation limits are now in `data/rockets/leon_2.toml` under `[control_actuation]`:
+
+```toml
+[control_actuation]
+delta_max_rad = 0.3490658503988659      # Max fin deflection (~20°)
+delta_dot_max_rad_s = 5.235987755982989  # Max deflection rate
+```
+
+These are loaded into `controller_state` by `rocket_builder.py`.
+
+### Timing Parameters (Derived/Obsolete Section - See Lines 143-151 for Current)
+
+**Note**: The following parameters are shown for historical reference only. The current configuration at lines 143-151 is the authoritative source.
+
+- `control_start_min_height_above_launch_m` is **derived** in `rocket_builder.py` as: `rail_length_m + safety_margin_m`
+- Actuation limits (`delta_max_rad`, `delta_dot_max_rad_s`) are now in `data/rockets/leon_2.toml` under `[control_actuation]`, not in `config.py`.
+
+Do not set these values in `config.py`; keep actuation limits in the rocket TOML and let the runtime derive the activation height.
 
 ## Creating Custom Reference Trajectories
 
@@ -220,13 +243,15 @@ uv sync
 
 **Solution**: Ensure you're using RocketPy 1.12.1:
 ```bash
-uv run pip list | grep rocketpy
+uv run uv pip list | grep rocketpy
 ```
 
 If not, sync again:
 ```bash
 uv sync --reinstall
 ```
+
+**Note**: The project uses RocketPy private API (`_Controller`, `rocket._add_controllers`). See `src/simulation.py` docstring.
 
 ### Issue: Missing data files
 
@@ -250,8 +275,9 @@ uv sync --reinstall
 **Possible fixes**:
 1. Tune control gains in `config.py` (increase `Kp_guidance`, `Kp_attitude`)
 2. Check reference trajectory is feasible (reasonable velocities/accelerations)
-3. Verify `cN_delta_per_rad` and other coefficients in `data/rockets/leon_2.toml`
+3. Verify `cN_delta_per_rad` and other coefficients in `data/rockets/leon_2.toml` (use `calculate_control_coefficients.py` script)
 4. Ensure control starts after motor burn (`control_start_delay_s > burn_time`)
+5. Check that `control_start_min_height_above_launch_m` is derived correctly (`rail_length_m + safety_margin_m`)
 
 ### Issue: Inconsistent results between runs
 
@@ -282,14 +308,14 @@ import src.plots as plots
 # Load configuration
 config = cfg.load_config()
 
-# Load data
-case_data = init.load_initial_case_data()
+# Load data (pass config)
+case_data = init.load_initial_case_data(config)
 
 # Build components
 reference = reference_mod.load_reference_trajectory(config.reference_path)
 controller = controllers.build_controller(config)
 environment = env_builder.build_environment(case_data, config)
-rocket = rocket_builder.build_rocket(case_data, config, controller)
+rocket, components = rocket_builder.build_rocket(case_data, config, controller, return_components=True)
 
 # Run simulation
 flight_history = sim.simulate_controlled_flight(
@@ -301,8 +327,9 @@ flight_history = sim.simulate_controlled_flight(
 )
 
 # Analyze
-metrics = metrics_mod.compute_tracking_metrics(flight_history, reference, config)
-sim.export_results(flight_history, reference, metrics, config)
+metrics = metrics_mod.compute_tracking_metrics(flight_history, reference, config, controller)
+run_dir = sim.export_results(flight_history, reference, metrics, config, case_data, rocket, components)
+print(f"Results saved to {run_dir}")
 ```
 
 ### Batch Runs / Parameter Sweeps

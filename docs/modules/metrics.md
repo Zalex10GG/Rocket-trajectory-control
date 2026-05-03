@@ -6,7 +6,7 @@ Computes **quantitative tracking performance metrics** for the controlled flight
 
 ## Key Functions
 
-### `compute_tracking_metrics(flight_history, reference, config)`
+### `compute_tracking_metrics(flight_history, reference, config, controller_state=None)`
 
 **Purpose**: Computes tracking errors and control performance metrics.
 
@@ -15,7 +15,8 @@ Computes **quantitative tracking performance metrics** for the controlled flight
 def compute_tracking_metrics(
     flight_history: list[dict],
     reference: dict,
-    config: object
+    config: object,
+    controller_state: dict = None
 ) -> dict:
 ```
 
@@ -57,12 +58,14 @@ def compute_tracking_metrics(
    }
    ```
 
-4. **Fin Saturation Ratio**:
-   ```python
-   sat_mask = np.any(np.abs(deltas) >= 0.95 * config.delta_max_rad, axis=1)
-   sat_count = np.sum(sat_mask)
-   metrics["fin_saturation_ratio"] = float(sat_count / total_ctrl_samples)
-   ```
+ 4. **Fin Saturation Ratio**:
+    ```python
+    # delta_max_rad is in controller_state (loaded from TOML, not config)
+    if controller_state and "delta_max_rad" in controller_state:
+        sat_mask = np.any(np.abs(deltas) >= 0.95 * controller_state["delta_max_rad"], axis=1)
+        sat_count = np.sum(sat_mask)
+        metrics["fin_saturation_ratio"] = float(sat_count / total_ctrl_samples)
+    ```
 
 5. **Flight Summary** (Full Flight):
    ```python

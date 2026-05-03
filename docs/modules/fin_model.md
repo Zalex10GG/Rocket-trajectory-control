@@ -4,6 +4,8 @@
 
 Implements the **FinAdapter** class that bridges the controller's fin deflection commands to RocketPy's `GenericSurface` aerodynamic coefficients. This is the critical link between control logic and flight physics.
 
+**Important**: This version uses only incremental control coefficients. Passive aerodynamics (alpha/beta effects) are handled by the `TrapezoidalFins` object in RocketPy. The `FinAdapter` only models the delta-dependent increment.
+
 ## Class: `FinAdapter`
 
 ### Constructor
@@ -24,11 +26,15 @@ self.params = actuation_params
 
 # Aerodynamic derivatives (from actuation_params)
 self.cN_delta = self.params.get("cN_delta_per_rad", 0.0)
-self.cm_delta = self.params.get("cm_delta_per_rad", 0.0)
 self.cy_delta = self.params.get("cy_delta_per_rad", 0.0)
-self.cn_delta = self.params.get("cn_moment_delta_per_rad", 0.0)
 self.cl_delta = self.params.get("cl_delta_per_rad", 0.0)
+self.k_drag_induced = self.params.get("k_drag_induced", 0.0)
+
+# Passive stability term (if fins are controlled)
+self.clalpha_fins = self.params.get("clalpha_fins", 0.0)
 ```
+
+**Note**: `cm_delta` and `cn_delta` are NOT stored because `cm_coeff()` and `cn_coeff()` return 0.0 - RocketPy computes moments via CP-to-CG arm automatically.
 
 ---
 
@@ -63,7 +69,7 @@ def coeff(self, alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate) ->
 
 #### `cl_coeff(alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate)`
 
-**Purpose**: Lift coefficient (cL) from fin deflection.
+**Purpose**: Lift coefficient (cL) increment from fin deflection.
 
 **Mixing Logic**:
 ```python
@@ -71,15 +77,14 @@ def cl_coeff(self, ...):
     deltas = self.get_current_deltas()
     delta_pitch = (deltas[1] - deltas[3]) / 2.0  # (Fin2 - Fin4) / 2
     
-    # cL = -cN_delta * delta_pitch
-    # Negative because GenericSurface uses -lift in aero frame
-    return -self.cN_delta * delta_pitch
+    # cL = cN_delta * delta_pitch (positive = nose pitches up in Body -Y)
+    return self.cN_delta * delta_pitch
 ```
 
 **Physics**: 
 - Positive `delta_pitch` (Fin2 up, Fin4 down) → Nose pitches "up" (Body -Y)
-- Lift (cL) in RocketPy aero frame points "up" relative to rocket
-- Negative sign because `R2 = -lift` in GenericSurface's frame conversion
+- Only incremental control force is modeled here (passive lift handled by TrapezoidalFins)
+- Sign convention matches RocketPy aero frame requirements
 
 #### `cq_coeff(alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate)`
 
@@ -101,37 +106,45 @@ def cq_coeff(self, ...):
 
 #### `cd_coeff(alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate)`
 
-**Purpose**: Drag coefficient (cD) from fin deflection.
+**Purpose**: Drag coefficient (cD) increment from fin deflection, including induced drag.
 
 **Current Implementation**:
 ```python
 def cd_coeff(self, ...):
-    return 0.0  # No induced drag model yet
+    cL = self.cl_coeff(alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate)
+    cQ = self.cq_coeff(alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate)
+    return self.k_drag_induced * (cL**2 + cQ**2)
 ```
 
-**Future Enhancement**: Add induced drag: `k * (cL² + cQ²)`
+**Physics**: Induced drag proportional to square of lift and side force coefficients.
 
 #### `cm_coeff(alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate)`
 
 **Purpose**: Pitch moment coefficient (cm) from fin deflection.
 
+**Current Implementation**:
 ```python
 def cm_coeff(self, ...):
-    deltas = self.get_current_deltas()
-    delta_pitch = (deltas[1] - deltas[3]) / 2.0
-    return self.cm_delta * delta_pitch
+    # Returns 0.0 - RocketPy computes the moment automatically
+    # using the CP-to-CG moment arm from the GenericSurface position
+    return 0.0
 ```
+
+**Note**: Moment derivatives (`cm_delta_per_rad`) are NOT used to avoid double-counting with RocketPy's automatic moment calculation.
 
 #### `cn_coeff(alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate)`
 
 **Purpose**: Yaw moment coefficient (cn) from fin deflection.
 
+**Current Implementation**:
 ```python
 def cn_coeff(self, ...):
-    deltas = self.get_current_deltas()
-    delta_yaw = (deltas[0] - deltas[2]) / 2.0
-    return self.cn_delta * delta_yaw
+    # Returns 0.0 - RocketPy computes the moment automatically
+    # using the CP-to-CG moment arm from the GenericSurface position
+    return 0.0
 ```
+
+**Note**: Moment derivatives (`cn_moment_delta_per_rad`) are NOT used to avoid double-counting.
 
 #### `cl_roll_coeff(alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate)`
 
@@ -268,18 +281,22 @@ Rotation matrix: Converts from aero frame to body frame
 
 ## Configuration Parameters
 
-From `data/rockets/leon_2.toml`:
+From `data/rockets/leon_2.toml` (actual values):
 
 ```toml
 [control_actuation]
-cN_delta_per_rad = 4.8           # Normal force derivative
-cm_delta_per_rad = -25.2          # Pitch moment derivative
-cy_delta_per_rad = 4.8            # Side force derivative
-cn_moment_delta_per_rad = -25.2   # Yaw moment derivative
-cl_delta_per_rad = 0.0            # Roll moment derivative
+cN_delta_per_rad = 9.343586365106     # Normal force derivative (increment only)
+cy_delta_per_rad = 9.343586365106     # Side force derivative (increment only)
+cl_delta_per_rad = 0.5                 # Roll moment derivative
+k_drag_induced = 0.295907824866       # Induced drag factor
+delta_max_rad = 0.3490658503988659     # Max deflection (~20°)
+delta_dot_max_rad_s = 5.235987755982989 # Max rate
 ```
 
-**Note**: `cm_delta` and `cn_delta` are typically negative for stability (fin deflection that pitches nose up produces nose-down moment).
+**Note**: `cm_delta_per_rad` and `cn_moment_delta_per_rad` are NOT in the current TOML because:
+1. `cm_coeff()` and `cn_coeff()` return 0.0 in `fin_model.py`
+2. RocketPy computes moments via CP-to-CG arm automatically
+3. This avoids double-counting moments
 
 ---
 
@@ -316,13 +333,12 @@ controller_state = {
     "deltas_history": {}
 }
 
-# Actuation parameters (from TOML)
+# Actuation parameters (from TOML - current values)
 actuation_params = {
-    "cN_delta_per_rad": 4.8,
-    "cm_delta_per_rad": -25.2,
-    "cy_delta_per_rad": 4.8,
-    "cn_moment_delta_per_rad": -25.2,
-    "cl_delta_per_rad": 0.0
+    "cN_delta_per_rad": 9.343586365106,
+    "cy_delta_per_rad": 9.343586365106,
+    "cl_delta_per_rad": 0.5,
+    "k_drag_induced": 0.295907824866
 }
 
 # Create adapter
@@ -340,5 +356,5 @@ pitch_rate, yaw_rate, roll_rate = 0.0, 0.0, 0.0
 reynolds = 1e6
 
 cL = coeffs["cL"](alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate)
-print(f"cL = {cL}")  # Should be negative (see sign convention above)
+print(f"cL = {cL}")  # Should be positive for positive pitch deflection
 ```

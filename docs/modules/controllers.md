@@ -6,7 +6,7 @@ Implements the **fin deflection controller** for trajectory tracking using quate
 
 ## Key Functions
 
-### `fin_controller(t, state, controller, config, reference)`
+### `fin_controller(t, state, controller, config, reference, gravity)`
 
 **Purpose**: Main callback function for RocketPy's `_Controller` integration.
 
@@ -17,9 +17,12 @@ def fin_controller(
     state: np.ndarray,           # [x, y, z, vx, vy, vz, q0, q1, q2, q3, wx, wy, wz]
     controller: dict,             # Controller state
     config: object,               # Config parameters
-    reference: dict               # Reference trajectory
+    reference: dict,              # Reference trajectory
+    gravity: float               # Gravity magnitude (m/s²) from Environment
 ) -> np.ndarray:                  # [d1, d2, d3, d4] fin deflections (rad)
 ```
+
+**Note**: The `gravity` parameter is obtained from `environment.gravity(elevation)` in `simulation.py` and passed to the callback.
 
 **State Format** (RocketPy 13-state vector):
 - `state[0:3]`: Position in ENU (m) - absolute ASL
@@ -31,75 +34,98 @@ def fin_controller(
 
 1. **State Extraction**:
    ```python
-   pos = np.array(state[0:3])      # ENU position (ASL)
-   vel = np.array(state[3:6])       # ENU velocity
-   q_real = np.array(state[6:10])   # Quaternion (ENU→Body)
-   w_body = np.array(state[10:13])  # Body rates
-   ```
+    pos = np.array(state[0:3])      # ENU position (ASL)
+    vel = np.array(state[3:6])       # ENU velocity
+    q_real = np.array(state[6:10])   # Quaternion (ENU→Body)
+    w_body = np.array(state[10:13])  # Body angular rates
+    ```
 
 2. **Control Activation Check**:
    ```python
-   if (t < config.control_start_delay_s or 
-       z_local < config.control_start_min_height_above_launch_m or 
-       vz <= 0):
-       return np.zeros(4)  # No control during burn, below rail, or descending
-   ```
+    z_asl = pos[2]
+    z_local = z_asl - config.elevation_asl_m
+    vz = vel[2]
+    
+    # Check reference time limit
+    ref_time_limit = reference['time_s'][-1]
+    ref_sample = sample_reference(reference, t)
+    vel_ref = ref_sample['velocity_enu_m_s']
+    
+    if (t < config.control_start_delay_s or 
+        z_local < config.control_start_min_height_above_launch_m or 
+        vz <= 0 or
+        t > ref_time_limit or
+        vel_ref[2] <= 0):
+        deltas = np.zeros(4)
+        controller["deltas_history"][float(t)] = deltas
+        return deltas  # No control during burn, below rail, or descending
+    ```
 
 3. **Guidance (PD Control)**:
    ```python
-   ref_sample = sample_reference(reference, t)
-   pos_ref = ref_sample['position_enu_m']  # Local ENU
-   vel_ref = ref_sample['velocity_enu_m_s']
-   
-   pos_local = pos - np.array([0, 0, config.elevation_asl_m])
-   accel_cmd_enu = Kp_guidance * (pos_ref - pos_local) + Kd_guidance * (vel_ref - vel)
-   accel_cmd_enu += np.array([0, 0, 9.81])  # Gravity compensation
-   ```
+    pos_ref = ref_sample['position_enu_m']  # Local ENU
+    
+    pos_local = pos - np.array([0, 0, config.elevation_asl_m])
+    accel_cmd_enu = Kp_guidance * (pos_ref - pos_local) + Kd_guidance * (vel_ref - vel)
+    accel_cmd_enu += np.array([0, 0, gravity])  # Gravity compensation (from Environment)
+    ```
 
 4. **Desired Attitude** (align nose with acceleration command):
    ```python
-   q_ref = compute_desired_attitude(accel_cmd_enu, config)
-   # Returns quaternion that rotates ENU [0,0,1] to align with accel_cmd
-   ```
+    q_ref = compute_desired_attitude(accel_cmd_enu, config)
+    # Returns quaternion that rotates ENU [0,0,1] to align with accel_cmd
+    ```
 
 5. **Attitude PID** (in body frame):
    ```python
-   q_error = quaternion_multiply(q_ref, quaternion_conjugate(q_real))
-   error_vec = q_error[1:4]  # [e_roll, e_pitch, e_yaw]
-   
-   # PID on error vector
-   integral_error += error_vec * dt
-   derivative = (error_vec - previous_error) / dt
-   
-   u_pitch = Kp * error[1] + Ki * integral[1] + Kd * derivative[1]
-   u_yaw = Kp * error[2] + Ki * integral[2] + Kd * derivative[2]
-   ```
+    q_error = quaternion_multiply(q_ref, quaternion_conjugate(q_real))
+    error_vec = q_error[1:4]  # [e_roll, e_pitch, e_yaw]
+    
+    # PID on error vector
+    controller["integral_error"] += error_vec * dt
+    derivative = (error_vec - controller["previous_error"]) / dt
+    controller["previous_error"] = error_vec
+    
+    u_pitch = Kp_attitude * error_vec[1] + Ki_attitude * controller["integral_error"][1] + Kd_attitude * derivative[1]
+    u_yaw = Kp_attitude * error_vec[2] + Ki_attitude * controller["integral_error"][2] + Kd_attitude * derivative[2]
+    ```
 
-6. **Roll Damping**:
+6. **Roll Control** (combined error and damping):
    ```python
-   u_roll = -Kp_roll * w_body[0]  # Dampen roll rate
-   ```
+    u_roll = config.Kp_roll * error_vec[0] - config.Kd_attitude * w_body[0]
+    # Aligns roll to 0 (error_vec[0]) AND damps roll rate
+    ```
 
 7. **Mixer** (4 fins, cross configuration):
    ```python
-   deltas = np.array([
-       u_yaw + u_roll,     # Fin 1 (0°, right)
-       u_pitch + u_roll,   # Fin 2 (90°, top)
-       -u_yaw + u_roll,    # Fin 3 (180°, left)
-       -u_pitch + u_roll   # Fin 4 (270°, bottom)
-   ])
-   ```
+    deltas = np.array([
+        u_yaw + u_roll,     # Fin 1 (0°, right)
+        u_pitch + u_roll,   # Fin 2 (90°, top)
+        -u_yaw + u_roll,    # Fin 3 (180°, left)
+        -u_pitch + u_roll   # Fin 4 (270°, bottom)
+    ])
+    ```
 
-8. **Saturation**:
+8. **Rate Limiting and Saturation**:
    ```python
-   deltas = np.clip(deltas, -config.delta_max_rad, config.delta_max_rad)
-   ```
+    # Get limits from controller state (loaded from TOML)
+    delta_max = controller["delta_max_rad"]
+    delta_dot_max = controller["delta_dot_max_rad_s"]
+    
+    # Rate limit
+    prev_deltas = controller.get("current_deltas", np.zeros(4))
+    max_step = delta_dot_max * dt
+    deltas = np.clip(deltas, prev_deltas - max_step, prev_deltas + max_step)
+    
+    # Saturation
+    deltas = np.clip(deltas, -delta_max, delta_max)
+    ```
 
 9. **Update State**:
    ```python
-   controller["current_deltas"] = deltas
-   controller["deltas_history"][float(t)] = deltas
-   ```
+    controller["current_deltas"] = deltas
+    controller["deltas_history"][float(t)] = deltas
+    ```
 
 **Returns**: `deltas` (4-element array of fin deflections in radians)
 
@@ -284,13 +310,17 @@ q_error = q_ref * conjugate(q_real)
 
 From `config.py`:
 - `control_start_delay_s`: Control activation delay (default: 3.0s)
-- `control_start_min_height_above_launch_m`: Min height for control (default: 11.0m)
+- `control_start_min_height_above_launch_m`: Min height for control (derived: `rail_length_m + safety_margin_m`)
 - `Kp_guidance`, `Kd_guidance`: Guidance PD gains
 - `Kp_attitude`, `Ki_attitude`, `Kd_attitude`: Attitude PID gains
-- `Kp_roll`: Roll damping gain
-- `delta_max_rad`: Maximum fin deflection (default: 0.26 rad ≈ 15°)
+- `Kp_roll`: Roll control gain (used with Kd_attitude for damping)
 - `elevation_asl_m`: Launch elevation (for ENU conversion)
 - `control_dt_s`: Timestep for derivative/integral calculations
+- `rail_length_m`, `safety_margin_m`: Used to derive `control_start_min_height_above_launch_m`
+
+From `controller_state` (loaded from TOML `[control_actuation]`):
+- `delta_max_rad`: Maximum fin deflection (required/effective value from TOML, e.g., 0.349 rad ≈ 20°)
+- `delta_dot_max_rad_s`: Maximum deflection rate (required/effective value from TOML, e.g., 5.236 rad/s)
 
 ## State Management
 

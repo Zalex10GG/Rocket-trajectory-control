@@ -4,6 +4,8 @@
 
 Constructs the **RocketPy Environment** object with launch site parameters and atmospheric model.
 
+**Note**: Launch site parameters are passed via `case_data` (which gets them from `config.py`), not hardcoded.
+
 ## Key Functions
 
 ### `build_environment(case_data, config)`
@@ -19,9 +21,9 @@ def build_environment(case_data: dict, config: object) -> RocketPy.Environment:
 ```python
 def build_environment(case_data, config):
     env = Environment(
-        latitude=case_data["latitude"],
-        longitude=case_data["longitude"],
-        elevation=case_data["elevation_asl_m"]
+        latitude=case_data["latitude"],    # From config.py via initial_data.py
+        longitude=case_data["longitude"],  # From config.py
+        elevation=case_data["elevation_asl_m"]  # From config.py
     )
     
     # Set fixed date for reproducibility
@@ -34,6 +36,8 @@ def build_environment(case_data, config):
 ```
 
 **Returns**: Configured `RocketPy.Environment` object.
+
+**Gravity access**: `env.gravity(elevation)` is used in `simulation.py` to get gravity magnitude for the controller.
 
 ---
 

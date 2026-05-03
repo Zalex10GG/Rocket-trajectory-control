@@ -4,7 +4,13 @@
 
 This project implements a **6-DOF trajectory control system for sounding rockets** using rear-fin deflection. The simulation uses [RocketPy](https://github.com/RocketPy-Team/RocketPy) v1.12.1 for physics integration and leverages its private `_Controller` infrastructure for closed-loop fin control via `GenericSurface`.
 
-**Current active path**: Rear-fin control with PID attitude control and PD guidance for trajectory tracking. AirBrakes are no longer used.
+**Current active path**: Rear-fin control with PID attitude control and PD guidance for trajectory tracking. AirBrakes are not used.
+
+**Key features**:
+- Uses `GenericMotor` (not `SolidMotor`) for motor definition from TOML parameters
+- Control actuation limits (`delta_max_rad`, `delta_dot_max_rad_s`) defined in rocket TOML, not `config.py`
+- `control_start_min_height_above_launch_m` is derived as `rail_length_m + safety_margin_m`
+- New outputs: `manifest.json`, `effective_config.json`, `rocket_definition.toml`, `rocket_artifacts.json`
 
 ## Quick Start
 
@@ -25,21 +31,33 @@ uv sync
 uv run main.py
 ```
 
+Or using the installed entrypoint:
+
+```bash
+uv run rocket-control
+```
+
 This will:
-1. Load the Leon 2 rocket configuration
+1. Load the Leon 2 rocket configuration from `data/rockets/leon_2.toml`
 2. Simulate a controlled flight tracking a vertical reference trajectory
 3. Compute tracking metrics
 4. Generate plots in `results/<run_id>/plots/`
-5. Export flight history and metrics to `results/<run_id>/`
+5. Export flight history, metrics, and artifacts to `results/<run_id>/`
 
 ### Configuration
 
-Edit `config.py` to modify:
+**Execution parameters** (`config.py`):
 - **Control gains**: `Kp_guidance`, `Kd_guidance`, `Kp_attitude`, `Ki_attitude`, `Kd_attitude`, `Kp_roll`
-- **Timing**: `control_dt_s` (50 Hz default), `control_start_delay_s`, `control_start_min_height_above_launch_m`
-- **Actuation limits**: `delta_max_rad` (15° default)
+- **Timing**: `control_dt_s` (50 Hz default), `control_start_delay_s`, `safety_margin_m`
 - **Launch site**: `latitude`, `longitude`, `elevation_asl_m`, `rail_length_m`, `heading_deg`, `inclination_deg`
+- **Flags**: `save_results`, `show_plots`
 - **Paths**: `reference_path`, `results_dir`
+
+**Actuation limits** (in `data/rockets/leon_2.toml` under `[control_actuation]`):
+- `delta_max_rad`: Max fin deflection (default: ~20°)
+- `delta_dot_max_rad_s`: Max deflection rate
+
+**Note**: `control_start_min_height_above_launch_m` is derived as `rail_length_m + safety_margin_m` in `rocket_builder.py`.
 
 ## Coordinate Convention
 
@@ -58,40 +76,45 @@ RocketPy internal integration uses absolute ASL positions, but the controller an
 ```
 ├── main.py                    # Entry point
 ├── config.py                  # Execution parameters
-├── initial_data.py            # Loads rocket/motor/drag definitions
+├── initial_data.py            # Loads rocket/motor/drag definitions from config
 ├── src/
 │   ├── simulation.py         # RocketPy Flight integration and history extraction
 │   ├── controllers.py        # PID fin controller with quaternion attitude control
 │   ├── fin_model.py          # FinAdapter: maps deltas to GenericSurface coefficients
-│   ├── rocket_builder.py     # Constructs RocketPy Rocket and Motor
+│   ├── rocket_builder.py     # Constructs RocketPy Rocket and GenericMotor
 │   ├── environment_builder.py # Constructs RocketPy Environment
 │   ├── reference.py          # Reference trajectory loading and sampling
 │   ├── metrics.py            # Tracking performance metrics
 │   ├── plots.py              # Plotting suite (full-flight + control-phase)
 │   ├── utils.py              # Quaternion math and control window detection
+│   ├── constants.py          # Shared constants (CONTROL_SURFACE_NAME)
 │   └── gen_reference.py      # Utility to generate vertical reference trajectories
 ├── data/
-│   ├── rockets/leon_2.toml  # Rocket geometry and control actuation params
+│   ├── rockets/leon_2.toml  # Rocket geometry, motor, and control actuation params
 │   ├── motors/*.csv          # Motor thrust curves
 │   ├── drag/*.csv            # Drag coefficient vs Mach number
 │   └── trajectory/*.csv      # Reference trajectory (time, pos, vel in ENU)
 └── results/
-    └── <run_id>/             # Output directory (timestamped)
+    └── <run_id>/             # Output directory (timestamped with microseconds)
         ├── flight_history.csv
         ├── flight_summary.csv
         ├── metrics.json
-        └── plots/            # 7 analysis plots
+        ├── manifest.json           # Git metadata, file hashes
+        ├── effective_config.json   # Serializable config
+        ├── rocket_definition.toml  # Copy of rocket TOML
+        ├── rocket_artifacts.json   # Rocket stats
+        └── plots/                  # 7 analysis plots
 ```
 
 ## Input Files
 
 ### Rocket Definition (`data/rockets/leon_2.toml`)
 Defines:
-- `[geometry]`: Mass, dimensions, inertia
-- `[fins]`: Passive stabilization fins (4 trapezoidal fins)
-- `[control_actuation]`: Rear fin control parameters (reference area, moment coefficients, delta limits)
-- `[stability_derivatives]`: Aerodynamic stability derivatives
-- `[motor_interface]`: Motor compatibility
+- `[nosecone]`: Nose cone geometry and position
+- `[body]`: Mass, dimensions, inertia (note: `inertia_zz_kg_m2 = 0.01` for Leon 2)
+- `[fins]`: Passive stabilization fins (4 trapezoidal fins) with `sweep_angle_deg`
+- `[control_actuation]`: Rear fin control parameters (reference area, coefficients, delta limits)
+- `[motor]`: Motor parameters for `GenericMotor` (burn time, chamber dimensions, inertia)
 
 ### Motor Thrust Curve (`data/motors/*.csv`)
 CSV with `time_s` and `thrust_N` columns.
@@ -107,7 +130,7 @@ CSV with columns:
 
 Generate a vertical reference:
 ```bash
-uv run python -c "from src.gen_reference import generate_vertical_reference; generate_vertical_reference('data/trajectory/vertical.csv', max_altitude=1000, duration=20)"
+uv run py -c "from src.gen_reference import generate_vertical_reference; generate_vertical_reference('data/trajectory/vertical.csv', max_altitude=1000, duration=20)"
 ```
 
 ## Output Files
@@ -154,7 +177,7 @@ Control performance metrics (control phase only):
 Reference Trajectory (ENU)
         │
         ▼
-   [PD Guidance] ← Desired acceleration in ENU
+   [PD Guidance] ← Desired acceleration in ENU (with gravity compensation from Environment)
         │
         ▼
    [Quaternion Attitude Control] ← Desired quaternion (ENU → Body)
@@ -163,19 +186,19 @@ Reference Trajectory (ENU)
    [PID Attitude Error] ← Error quaternion (Body frame)
         │
         ├─ Pitch/Yaw: PID on q_error[y], q_error[z]
-        └─ Roll: P damping on body rate p
+        └─ Roll: P on error[0] - Kd_attitude * body rate p
         │
         ▼
    [Mixer] ← Maps (pitch, yaw, roll) to 4 fin deflections
         │
         ▼
-   [FinAdapter] ← Maps deltas to GenericSurface coefficients (cL, cQ, cm, cn, cl)
+   [FinAdapter] ← Maps deltas to GenericSurface coefficients (cL, cQ, cD, cm=0, cn=0, cl)
         │
         ▼
-   [RocketPy GenericSurface] ← Applies aerodynamic forces/moments
+   [RocketPy GenericSurface] ← Applies aerodynamic forces/moments (moments via CP-to-CG arm)
 ```
 
-**Control activation**: Starts after `control_start_delay_s` (3s) AND above `control_start_min_height_above_launch_m` (11m) AND while `vz > 0` (ascending).
+**Control activation**: Starts after `control_start_delay_s` (3s) AND above `control_start_min_height_above_launch_m` (derived: `rail_length_m + safety_margin_m`) AND while `vz > 0` (ascending) AND `t <= ref_time_limit` AND `vel_ref[2] > 0`.
 
 **Fins configuration**: Cross (+) with 4 fins:
 - Fin 1 (0°): Right
@@ -183,7 +206,7 @@ Reference Trajectory (ENU)
 - Fin 3 (180°): Left
 - Fin 4 (270°): Bottom
 
-Mixing law:
+**Mixing law**:
 ```
 d1 = u_yaw + u_roll
 d2 = u_pitch + u_roll
@@ -191,23 +214,27 @@ d3 = -u_yaw + u_roll
 d4 = -u_pitch + u_roll
 ```
 
+**Rate limiting**: `delta_dot_max_rad_s` from TOML is enforced before saturation.
+
 ## Known Limitations
 
-1. **RocketPy Private API**: Uses `_Controller` (private infrastructure). Future RocketPy versions may break compatibility.
+1. **RocketPy Private API**: Uses `_Controller` (private infrastructure). Future RocketPy versions may break compatibility. See `src/simulation.py` docstring for details.
 
-2. **Controller Sampling Mismatch**: The controller callback is sampled by RocketPy's ODE solver, which may not align exactly with `control_dt_s`. History interpolation is used to reconcile timestamps.
+2. **Controller Sampling Mismatch**: The controller callback is sampled by RocketPy's ODE solver, which may not align exactly with `control_dt_s`. Nearest-neighbor lookup is used to reconcile timestamps.
 
-3. **Simplified Guidance**: PD guidance with gravity compensation. No optimal trajectory generation or feedforward terms.
+3. **Simplified Guidance**: PD guidance with gravity compensation (gravity obtained from RocketPy `Environment`). No optimal trajectory generation or feedforward terms.
 
 4. **No Wind/Gust Modeling**: Environment uses standard ISA atmosphere with no wind disturbances.
 
-5. **Quaternion Convention**: Ensure consistency between ENU→Body quaternion format and RocketPy's internal representation.
+5. **Quaternion Convention**: Ensure consistency between ENU→Body quaternion format (`[w, x, y, z]`) and RocketPy's internal representation.
 
-6. **Fin Saturation**: Hard clip at `delta_max_rad`. No rate limiting implemented (though `delta_dot_max_rad_s` is defined in TOML).
+6. **Fin Rate Limiting**: Rate limiting (`delta_dot_max_rad_s`) is implemented in `controllers.py`, not in `FinAdapter`.
 
 7. **Single Reference**: Currently only vertical trajectory reference. Lateral trajectory tracking not validated.
 
 8. **No EKF/State Estimation**: Uses perfect state feedback from simulation. Real-world implementation would require sensor fusion.
+
+9. **Moment Derivatives**: `cm_delta` and `cn_delta` return 0.0 in `FinAdapter`. Moments are computed by RocketPy using CP-to-CG arm.
 
 ## Documentation
 

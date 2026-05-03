@@ -1,11 +1,13 @@
-# Control Aerodynamic Coefficients for Fin Deflection
+# Control Aerodynamic Coefficients for Fin Deflection (Historical)
+
+**Note**: This is a historical document. The actual coefficients are already computed and stored in `data/rockets/leon_2.toml` under `[control_actuation]`.
 
 This document lists the coefficients to estimate for modeling the aerodynamic increment due to rear fin deflection, when passive aerodynamics are already provided via `TrapezoidalFins` (RocketPy).
 
 ## Current Hybrid Model
 
 - **Passive aerodynamics**: `TrapezoidalFins` (native RocketPy).
-- **Control increment**: `GenericSurface` named `"Control Fin Deflection Increment"`.
+- **Control increment**: `GenericSurface` named `"Control Fins"` (historically/formerly named `"Control Fin Deflection Increment"`).
 
 ## Required Derivatives (Increment Only)
 
@@ -40,14 +42,15 @@ reference_area_m2 = 0.007853981633974483
 reference_length_m = 0.1452
 
 # Increment derivatives (control only)
-cN_delta_per_rad = 9.343586365106        # dCN/ddelta
-cy_delta_per_rad = 9.343586365106        # dCY/ddelta
-cd_delta_per_rad = 0.0        # dCD/ddelta (small incremental drag)
+cN_delta_per_rad = 9.343586365106        # dCN/ddelta (used in cl_coeff)
+cy_delta_per_rad = 9.343586365106        # dCY/ddelta (used in cq_coeff)
+cl_delta_per_rad = 0.5                  # dCl/ddelta (used in cl_roll_coeff)
+k_drag_induced = 0.295907824866         # Induced drag factor (used in cd_coeff)
 
-# Moments: let RocketPy compute via moment arm
-cm_delta_per_rad = 0.0        # dCm/ddelta (local moment at CP, not total)
-cn_moment_delta_per_rad = 0.0  # dCn/ddelta
-cl_delta_per_rad = 0.5         # dCl/ddelta (roll)
+# Deprecated (not used - cm_coeff and cn_coeff return 0.0):
+# cm_delta_per_rad = 0.0        # RocketPy computes moments via CP-to-CG arm
+# cn_moment_delta_per_rad = 0.0  # RocketPy computes moments via CP-to-CG arm
+# cd_delta_per_rad = 0.0        # Use k_drag_induced instead
 ```
 
 ## What NOT to Provide (to avoid double counting)

@@ -4,6 +4,12 @@
 
 The Rocket Control TFG project implements a closed-loop trajectory control system for sounding rockets using rear-fin deflection. The system integrates with RocketPy's 6-DOF flight simulation through its private `_Controller` infrastructure.
 
+**Key changes from earlier versions**:
+- Uses `GenericMotor` (not `SolidMotor`) for motor definition
+- Control actuation limits defined in TOML `[control_actuation]` section
+- `control_start_min_height_above_launch_m` derived from `rail_length_m + safety_margin_m`
+- `FinAdapter` returns `cm=0`, `cn=0` (moments computed by RocketPy)
+
 ## High-Level Architecture
 
 ```
@@ -27,8 +33,9 @@ The Rocket Control TFG project implements a closed-loop trajectory control syste
                    ┌────────────────────────────────────┐
                    │     RocketPy Flight Object         │
                    │  - 6-DOF Equations of Motion      │
-                   │  - Variable mass (motor burn)      │
-                   │  - Aerodynamics (drag, fins)       │
+                   │  - Variable mass (GenericMotor)    │
+                   │  - Aerodynamics (TrapezoidalFins   │
+                   │    + GenericSurface)                │
                    │  - Environment (ISA atmosphere)     │
                    └────────────────────────────────────┘
 ```
@@ -40,35 +47,43 @@ The Rocket Control TFG project implements a closed-loop trajectory control syste
 ```
 config.py::load_config()
     ↓
-Returns: Config object with timing, gains, launch site, paths
+Returns: Config object with timing, gains, launch site, paths, safety_margin_m
 
-initial_data.py::load_initial_case_data()
+initial_data.py::load_initial_case_data(config)
     ↓
-Reads: data/rockets/leon_2.toml
+Reads: data/rockets/leon_2.toml (paths from config)
     ↓
-Returns: dict with rocket_params, motor_path, drag_path, trajectory_path
+Returns: dict with rocket_params, motor_path, drag_path, trajectory_path, launch params
 
 src/environment_builder.py::build_environment()
     ↓
 Creates: RocketPy Environment (latitude, longitude, elevation, ISA atmosphere)
+    ↓
+Fixed date for reproducibility: (2026, 4, 28, 12)
 
 src/rocket_builder.py::build_rocket()
     ↓
-Creates: RocketPy Rocket + SolidMotor
+Creates: RocketPy Rocket + GenericMotor (from [motor] TOML section)
     ↓
-Attaches: FinAdapter → GenericSurface (rear fins control)
+Derives: control_start_min_height_above_launch_m = rail_length_m + safety_margin_m
     ↓
-Adds: Nose cone, trapezoidal fins (passive), parachute
+Stores in controller_state: delta_max_rad, delta_dot_max_rad_s (from TOML)
+    ↓
+Attaches: FinAdapter → GenericSurface (rear fins control, cm=0, cn=0)
+    ↓
+Adds: Nose cone (from [nosecone]), trapezoidal fins (passive), parachute
 
 src/controllers.py::build_controller()
     ↓
-Returns: Controller state dict (integral_error, previous_error, deltas_history)
+Returns: Controller state dict (integral_error, previous_error, current_deltas, deltas_history)
 ```
 
 ### 2. Simulation Phase
 
 ```
 src/simulation.py::simulate_controlled_flight()
+    │
+    ├─ Gets gravity from Environment: env.gravity(elevation)
     │
     ├─ Creates controller_callback(t, sampling_rate, state, ...)
     │   State format: [x, y, z, vx, vy, vz, q0, q1, q2, q3, wx, wy, wz]
@@ -80,19 +95,19 @@ src/simulation.py::simulate_controlled_flight()
     │
     ├─ rocket._add_controllers(ctrl_obj)
     │
-    └─ Flight(rocket, environment, ...)
+    └─ Flight(rocket, environment, terminate_on_apogee=True, time_overshoot=False)
         │
         └─ During integration, at each callback:
             │
-            └─ src/controllers.py::fin_controller(t, state, controller, config, reference)
+            └─ src/controllers.py::fin_controller(t, state, controller, config, reference, gravity)
                 │
-                ├─ Check control activation (time, height, vz > 0)
+                ├─ Check control activation (time, height, vz > 0, ref_time, ref_vel_z > 0)
                 │
                 ├─ Sample reference trajectory at time t
                 │   Returns: position_enu_m, velocity_enu_m_s
                 │
                 ├─ PD Guidance:
-                │   accel_cmd = Kp*(pos_ref - pos) + Kd*(vel_ref - vel) + [0,0,9.81]
+                │   accel_cmd = Kp*(pos_ref - pos_local) + Kd*(vel_ref - vel) + [0,0,gravity]
                 │
                 ├─ Compute desired quaternion (ENU→Body):
                 │   Align rocket nose (Body Z) with accel_cmd direction
@@ -102,7 +117,7 @@ src/simulation.py::simulate_controlled_flight()
                 │   e_roll = q_error[1], e_pitch = q_error[2], e_yaw = q_error[3]
                 │   PID output: u_pitch, u_yaw
                 │
-                ├─ Roll damping: u_roll = -Kp_roll * w_body[0]
+                ├─ Roll control: u_roll = Kp_roll * e_roll - Kd_attitude * w_body[0]
                 │
                 ├─ Mixer (4 fins, cross config):
                 │   d1 = u_yaw + u_roll    (Fin 1: 0°, right)
@@ -110,17 +125,17 @@ src/simulation.py::simulate_controlled_flight()
                 │   d3 = -u_yaw + u_roll   (Fin 3: 180°, left)
                 │   d4 = -u_pitch + u_roll (Fin 4: 270°, bottom)
                 │
+                ├─ Rate limiting: clip to [prev - max_step, prev + max_step]
                 ├─ Saturate: clip to [-delta_max_rad, +delta_max_rad]
                 │
                 └─ Update controller["current_deltas"] and controller["deltas_history"][t]
                     ↓
                 FinAdapter.get_current_deltas() reads controller["current_deltas"]
                     ↓
-                GenericSurface coefficients updated:
-                    cL = -cN_delta * (d2 - d4)/2
+                GenericSurface coefficients updated (cm=0, cn=0 - RocketPy computes moments):
+                    cL = cN_delta * (d2 - d4)/2
                     cQ = cy_delta * (d1 - d3)/2
-                    cm = cm_delta * (d2 - d4)/2
-                    cn = cn_delta * (d1 - d3)/2
+                    cD = k_drag_induced * (cL² + cQ²)
                     cl = cl_delta * mean(deltas)
 ```
 
@@ -200,19 +215,23 @@ main.py
 ├── initial_data.py
 │   └── data/rockets/*.toml (via toml.load)
 ├── src/controllers.py
-│   └── src/utils.py (quaternion math)
+│   ├── src/utils.py (quaternion math)
+│   └── src/reference.py (sample_reference)
 ├── src/environment_builder.py
 │   └── rocketpy.Environment
 ├── src/rocket_builder.py
-│   ├── rocketpy.Rocket, rocketpy.SolidMotor
-│   └── src/fin_model.py (FinAdapter)
-│       └── rocketpy.Function (for GenericSurface coefficients)
+│   ├── rocketpy.Rocket, rocketpy.GenericMotor (not SolidMotor)
+│   ├── src/fin_model.py (FinAdapter)
+│   │   └── rocketpy.Function (for GenericSurface coefficients)
+│   └── src/constants.py (CONTROL_SURFACE_NAME)
 ├── src/simulation.py
 │   ├── rocketpy.Flight
+│   ├── rocketpy._Controller (private API)
 │   ├── src/plots.py
-│   └── src/controllers.py (fin_controller)
+│   ├── src/controllers.py (fin_controller with gravity param)
+│   └── src/constants.py
 ├── src/metrics.py
-│   ├── src/utils.py
+│   ├── src/utils.py (get_control_window_indices)
 │   └── src/reference.py
 └── src/reference.py
     └── scipy.interpolate (for trajectory sampling)
