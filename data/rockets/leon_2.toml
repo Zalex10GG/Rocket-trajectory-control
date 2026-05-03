@@ -1,11 +1,12 @@
 id = "leon_2"
 name = "Leon 2"
-description = "Cohete de referencia para la ruta oficial V1"
+description = "Cohete de referencia"
 
 [nosecone]
 kind = "vonkarman"
 length_m = 0.5
-radius_m = 0.05
+base_radius_m = 0.05
+position_m = 0
 
 [body]
 dry_mass_kg = 8.0
@@ -15,14 +16,16 @@ center_of_mass_without_motor_m = 1.29
 inertia_xx_kg_m2 = 0.08
 inertia_yy_kg_m2 = 0.08
 inertia_zz_kg_m2 = 0.0
+coordinate_system_orientation = "tail_to_nose"
 
 [fins]
 count = 4
 root_chord_m = 0.203
 tip_chord_m = 0.0625
 span_m = 0.102
-sweep_length_m = 0.0
+sweep_angle_deg = 36.0
 position_from_tail_m = 0.203
+cant_angle_deg = 0.0
 controlled = true
 
 [control_actuation]
