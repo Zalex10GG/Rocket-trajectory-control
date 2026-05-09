@@ -27,6 +27,9 @@ sweep_angle_deg = 36.0
 position_from_tail_m = 0.203
 cant_angle_deg = 0.0
 controlled = true
+# Center of pressure of the trapezoidal fin planform (x-axis offset from root LE in fin local coords).
+# Computed via rocketpy.TrapezoidalFins.evaluate_center_of_pressure(); fins.cp[2].
+center_of_pressure_m = 0.06680299035398286
 
 [control_actuation]
 # Area de seccion transversal del cuerpo (pi * radio^2), consistente con derivados de estabilidad (clalpha)
@@ -54,4 +57,7 @@ dry_inertia_xx_kg_m2 = 0.001
 dry_inertia_yy_kg_m2 = 0.001
 dry_inertia_zz_kg_m2 = 0.0
 nozzle_position_m = 0.0
+# Position of the motor's coordinate-system origin in the rocket frame.
+# In tail_to_nose the tail is at 0, so place the motor origin (nozzle) at the tail.
+position_m = 0.0
 coordinate_system_orientation = "nozzle_to_combustion_chamber"

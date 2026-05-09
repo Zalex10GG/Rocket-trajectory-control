@@ -4,8 +4,38 @@ import hashlib
 import subprocess
 from datetime import datetime
 from rocketpy import Rocket, GenericMotor, GenericSurface
+from rocketpy.plots.rocket_plots import _RocketPlots
+from rocketpy.rocket.aero_surface import Fins
 from src.fin_model import FinAdapter
 from src.constants import CONTROL_SURFACE_NAME
+
+class _FixedRocketPlots(_RocketPlots):
+    """Patches RocketPy's draw so that fin root chords are drawn even when
+    GenericSurface is placed after fins in the aerodynamic surface list.
+    """
+
+    def _draw_tubes(self, ax, drawn_surfaces, vis_args):
+        radius, last_x = super()._draw_tubes(ax, drawn_surfaces, vis_args)
+        for i, d_surface in enumerate(drawn_surfaces):
+            surface, position, surf_radius, surf_last_x = d_surface
+            if isinstance(surface, Fins) and i != len(drawn_surfaces) - 1:
+                x_tube = [position, surf_last_x]
+                y_tube = [surf_radius, surf_radius]
+                y_tube_neg = [-surf_radius, -surf_radius]
+                ax.plot(
+                    x_tube,
+                    y_tube,
+                    color=vis_args["body"],
+                    linewidth=vis_args["line_width"],
+                )
+                ax.plot(
+                    x_tube,
+                    y_tube_neg,
+                    color=vis_args["body"],
+                    linewidth=vis_args["line_width"],
+                )
+        return radius, last_x
+
 
 def get_file_hash(filepath):
     """Computes SHA256 hash of a file."""
@@ -131,43 +161,65 @@ def build_rocket(case_data, config, controller_state, return_components=False):
         coordinate_system_orientation=geom["coordinate_system_orientation"]
     )
     
-    rocket.add_motor(motor, position=-geom["length_m"]) 
+    # Place the motor so its origin (nozzle, since nozzle_position=0) sits at the
+    # rocket tail. In tail_to_nose the tail is the origin (x=0).
+    motor_position = motor_params.get("position_m", 0.0)
+    rocket.add_motor(motor, position=motor_position) 
     
     # 2. Add Aerodynamic Surfaces
+    # NOTE: add_nose expects the nose-tip coordinate in the rocket coordinate system.
+    # TOML stores nosecone.position_m as a tail-to-nose offset (0 = tip at full body length),
+    # so we convert: position = body_length - tail_offset.
     rocket.add_nose(
         length=params["nosecone"]["length_m"],
         kind=params["nosecone"]["kind"],
-        position=params["nosecone"]["position_m"]
+        position=geom["length_m"] - params["nosecone"]["position_m"]
     )
     
     # 3. Add Controlled GenericSurface
     # Initialize adapter and coefficients
     adapter = FinAdapter(controller_state, actuation)
     coeffs = adapter.get_coefficients_dict()
-    
+
     # Store actuation limits in controller state for the controller to use
     if "delta_max_rad" not in actuation or "delta_dot_max_rad_s" not in actuation:
         raise ValueError("Critical error: 'delta_max_rad' and 'delta_dot_max_rad_s' "
                          "must be defined in rocket TOML [control_actuation].")
-    
+
     controller_state["delta_max_rad"] = actuation["delta_max_rad"]
     controller_state["delta_dot_max_rad_s"] = actuation["delta_dot_max_rad_s"]
-    
+
     # Deriving minimum activation height
     config.control_start_min_height_above_launch_m = config.rail_length_m + config.safety_margin_m
 
+    # Base Fins (Aero stability)
+    f = params["fins"]
+
+    # Read the center of pressure from the TOML; it was precomputed by
+    # rocketpy.TrapezoidalFins.evaluate_center_of_pressure() and stored as a constant.
+    cpz = f.get("center_of_pressure_m")
+    if cpz is None:
+        raise KeyError("Missing 'center_of_pressure_m' in [fins] section of rocket TOML.")
+
+    # GenericSurface.center_of_pressure is defined in the surface's local coords.
+    # To align both physics and the rocket diagram, we place the GenericSurface
+    # origin at the fin's absolute center of pressure and set the local CP to
+    # (0, 0, 0). In fin local coords cpz is positive downwards (towards the tail),
+    # so the absolute CP in tail_to_nose rocket coords is:
+    #   position_from_tail_m - cpz
     control_surface = GenericSurface(
         reference_area=actuation["reference_area_m2"],
         reference_length=actuation["reference_length_m"],
         coefficients=coeffs,
+        center_of_pressure=(0, 0, 0),
         name=CONTROL_SURFACE_NAME
     )
-    
-    # Base Fins (Aero stability)
-    f = params["fins"]
-    
-    # Position in RocketPy coordinate system (tail_to_nose: 0 is tail)
-    rocket.add_surfaces(control_surface, -f["position_from_tail_m"])
+
+    # add_surfaces positions the surface's origin at the given rocket coord.
+    # Because local CP is (0,0,0), the origin is the aerodynamic center and the
+    # plotted point will appear at the correct CP location.
+    fin_cp_position = f["position_from_tail_m"] - cpz
+    rocket.add_surfaces(control_surface, fin_cp_position)
 
     # 4. Parachute
     main_parachute = rocket.add_parachute(
@@ -178,16 +230,19 @@ def build_rocket(case_data, config, controller_state, return_components=False):
     
     # 5. Base Fins (Aero stability)
     # Leon 2 base fins are NOT controlled, they provide passive stability.
+    # position is root chord leading edge (highest point) in tail_to_nose coords.
     base_fins = rocket.add_trapezoidal_fins(
         n=f["count"],
         root_chord=f["root_chord_m"],
         tip_chord=f["tip_chord_m"],
         span=f["span_m"],
-        position=-f["position_from_tail_m"], 
+        position=f["position_from_tail_m"],
         sweep_length=None,
         sweep_angle=f["sweep_angle_deg"],
         cant_angle=f["cant_angle_deg"]
     )
+
+    rocket.plots = _FixedRocketPlots(rocket)
 
     if return_components:
         components = {
@@ -198,5 +253,5 @@ def build_rocket(case_data, config, controller_state, return_components=False):
             "parachute": main_parachute
         }
         return rocket, components
-    
+
     return rocket

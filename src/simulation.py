@@ -181,6 +181,10 @@ def export_results(flight_history, reference, metrics, config, case_data, rocket
         
     # 5. Export plots to run directory
     plots.generate_all_plots(flight_history, reference, metrics, config, run_dir)
+
+    # 6. RocketPy static plots (rocket diagram, static margin, motor thrust)
+    if rocket and components:
+        plots.generate_rocket_creation_plots(rocket, components, run_dir)
     
     print(f"Results exported to {run_dir}")
     return run_dir
