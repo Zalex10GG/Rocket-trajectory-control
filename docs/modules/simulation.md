@@ -350,7 +350,7 @@ import src.controllers as controllers
 
 # Load config and data
 config = cfg.load_config()
-case_data = init.load_initial_case_data()
+case_data = init.load_initial_case_data(config)
 
 # Build components
 reference = reference_mod.load_reference_trajectory(config.reference_path)

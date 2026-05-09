@@ -20,7 +20,7 @@ class FinAdapter:
         # Passive stability term
         # If the fins are controlled, we need to include their passive lift
         # when they are at an angle of attack (alpha/beta) but with delta=0.
-        self.clalpha_fins = self.params.get("clalpha_fins", 0.0)
+        # Reserved for future integration: self.clalpha_fins = self.params.get("clalpha_fins", 0.0)
         
     def get_current_deltas(self):
         """Helper to get the latest deltas calculated by the controller_function."""

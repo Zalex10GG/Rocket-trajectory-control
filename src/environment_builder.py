@@ -4,6 +4,9 @@ from rocketpy import Environment
 def build_environment(case_data, config):
     """
     Constructs the RocketPy Environment.
+
+    Note: The 'config' argument is currently reserved for future enhancements (e.g., custom
+    weather settings or complex atmosphere models) and is not used in the current implementation.
     """
     env = Environment(
         latitude=case_data["latitude"],

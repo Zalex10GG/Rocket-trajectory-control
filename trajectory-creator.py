@@ -215,13 +215,12 @@ def main():
     print("--- Trajectory Creator ---")
     
     # Load case data
-    case_data = load_initial_case_data()
+    from config import load_config
+    config = load_config()
+    case_data = load_initial_case_data(config)
     
     # Build environment (using elevation from case_data)
-    # We pass None for config as build_environment doesn't strictly need it 
-    # for the basic setup, but let's check if it's safe.
-    # Looking at environment_builder.py, it uses case_data and config (optional/ignored for basic).
-    env = build_environment(case_data, None)
+    env = build_environment(case_data, config)
     
     # Build rocket
     rocket, motor = build_passive_rocket(case_data)

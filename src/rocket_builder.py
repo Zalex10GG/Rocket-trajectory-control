@@ -1,6 +1,5 @@
 import os
 import json
-import warnings
 import hashlib
 import subprocess
 from datetime import datetime
@@ -89,9 +88,13 @@ def build_rocket(case_data, config, controller_state, return_components=False):
     geom = params["body"]
     motor_params = params["motor"]
 
-    # Safety check: Zero inertia zz warning
-    if geom.get("inertia_zz_kg_m2", 0.0) == 0.0:
-        warnings.warn(f"Rocket {params.get('name', 'unnamed')} has inertia_zz_kg_m2 = 0.0. Roll control might be physically unrealistic.")
+    # Safety check: Zero inertia zz validation
+    # inertia_zz_kg_m2 is the moment of inertia about the longitudinal axis.
+    # If it is exactly 0.0, roll control calculations and simulation stability might fail.
+    inertia_zz = geom.get("inertia_zz_kg_m2", 0.0)
+    if inertia_zz <= 0.0:
+        raise ValueError(f"Rocket {params.get('name', 'unnamed')} has invalid inertia_zz_kg_m2 ({inertia_zz}). "
+                         "A positive value is required for physical simulation and roll control.")
     
     # 1. Motor Construction
     import pandas as pd

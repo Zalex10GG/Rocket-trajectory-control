@@ -285,8 +285,8 @@ import src.rocket_builder as rocket_builder
 import src.controllers as controllers
 
 # Load data
-case_data = init.load_initial_case_data()
 config = cfg.load_config()
+case_data = init.load_initial_case_data(config)
 
 # Build controller state
 controller_state = controllers.build_controller(config)

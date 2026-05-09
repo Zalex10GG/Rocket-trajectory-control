@@ -112,8 +112,8 @@ import src.environment_builder as env_builder
 import config as cfg
 
 # Load data and config
-case_data = init.load_initial_case_data()
 config = cfg.load_config()
+case_data = init.load_initial_case_data(config)
 
 # Build environment
 environment = env_builder.build_environment(case_data, config)
@@ -176,13 +176,15 @@ flight = Flight(
 ```python
 from src.environment_builder import build_environment
 import initial_data as init
+import config as cfg
 
 # Load launch site data
-case_data = init.load_initial_case_data()
+config = cfg.load_config()
+case_data = init.load_initial_case_data(config)
 # case_data contains: latitude, longitude, elevation_asl_m
 
 # Build environment
-env = build_environment(case_data, None)  # config not used currently
+env = build_environment(case_data, config)
 
 # Inspect atmospheric properties
 altitude = 1000  # m ASL
