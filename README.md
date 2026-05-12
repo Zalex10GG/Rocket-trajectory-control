@@ -7,7 +7,7 @@ This project implements a **6-DOF trajectory control system for sounding rockets
 **Current active path**: Rear-fin control with PID attitude control and PD guidance for trajectory tracking. AirBrakes are not used.
 
 **Key features**:
-- Uses `GenericMotor` (not `SolidMotor`) for motor definition from TOML parameters
+- Uses `GenericMotor` for motor definition from TOML parameters
 - Control actuation limits (`delta_max_rad`, `delta_dot_max_rad_s`) defined in rocket TOML, not `config.py`
 - `control_start_min_height_above_launch_m` is derived as `rail_length_m + safety_margin_m`
 - New outputs: `manifest.json`, `effective_config.json`, `rocket_definition.toml`, `rocket_artifacts.json`
@@ -128,10 +128,20 @@ CSV with columns:
 - `x_enu_m`, `y_enu_m`, `z_enu_m`: Position in local ENU (m)
 - `vx_enu_m_s`, `vy_enu_m_s`, `vz_enu_m_s`: Velocity in local ENU (m/s)
 
-Generate a vertical reference:
+To generate a new trajectory reference:
+
+- Go to the `tools` directory and run `trajectory-creator.py`.
+
 ```bash
-uv run py -c "from src.gen_reference import generate_vertical_reference; generate_vertical_reference('data/trajectory/vertical.csv', max_altitude=1000, duration=20)"
+cd tools
 ```
+- You can change the trajectory parameters in `trajectory-creator.py` before running.
+
+```bash
+uv run trajectory-creator.py
+```
+> [!NOTE]
+> The reference trajectory is without wind and has no noise, obtaining a ideal trajectory.
 
 ## Output Files
 
