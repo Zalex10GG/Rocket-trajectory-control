@@ -2,9 +2,7 @@ import config as cfg
 import initial_data as init
 import src.controllers as controllers
 import src.environment_builder as env_builder
-import src.fin_model as fins
 import src.metrics as metrics_mod
-import src.plots as plots
 import src.reference as reference_mod
 import src.rocket_builder as rocket_builder
 import src.simulation as sim
@@ -29,7 +27,7 @@ def main() -> None:
     
     # 5. Build Rocket
     print("Building rocket...")
-    rocket, components = rocket_builder.build_rocket(case_data, config, controller, return_components=True)
+    rocket, components = rocket_builder.build_rocket(case_data, config, controller)
 
     # 6. Run Simulation (Fin Control integration)
     print("Starting simulation (Fin Control)...")
@@ -41,12 +39,15 @@ def main() -> None:
         config=config,
     )
 
-    # 5. Analysis and Results
+    # 7. Analysis and Results
     print("Computing metrics...")
     metrics = metrics_mod.compute_tracking_metrics(flight_history, reference, config, controller_state=controller)
     
     print("Generating plots and exporting results...")
-    sim.export_results(flight_history, reference, metrics, config, case_data, rocket=rocket, components=components)
+    sim.export_results(
+        flight_history, reference, metrics, config, case_data,
+        rocket=rocket, components=components, controller=controller,
+    )
     
     print("--- Done ---")
 
