@@ -57,7 +57,8 @@ This will:
 - `delta_max_rad`: Max fin deflection (default: ~20°)
 - `delta_dot_max_rad_s`: Max deflection rate
 
-**Note**: `control_start_min_height_above_launch_m` is derived as `rail_length_m + safety_margin_m` in `rocket_builder.py`.
+> [!NOTE]
+> `control_start_min_height_above_launch_m` is derived as `rail_length_m + safety_margin_m` in `rocket_builder.py`.
 
 ## Coordinate Convention
 
