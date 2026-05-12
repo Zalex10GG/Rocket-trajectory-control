@@ -6,7 +6,7 @@ description = "Cohete de referencia"
 kind = "vonkarman"
 length_m = 0.5
 base_radius_m = 0.05
-position_m = 0
+position_m = 2.556
 
 [body]
 dry_mass_kg = 8.0
@@ -54,10 +54,15 @@ nozzle_radius_m = 0.004
 dry_mass_kg = 1.586
 center_of_dry_mass_position_m = 0.25
 dry_inertia_xx_kg_m2 = 0.001
-dry_inertia_yy_kg_m2 = 0.001
-dry_inertia_zz_kg_m2 = 0.0
+dry_inertia_yy_kg_m2 = 0.01
+dry_inertia_zz_kg_m2 = 0.01
 nozzle_position_m = 0.0
 # Position of the motor's coordinate-system origin in the rocket frame.
 # In tail_to_nose the tail is at 0, so place the motor origin (nozzle) at the tail.
 position_m = 0.0
 coordinate_system_orientation = "nozzle_to_combustion_chamber"
+
+[parachute]
+name = "Main"
+cd_s = 10.0
+trigger = "apogee"
