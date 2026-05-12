@@ -207,10 +207,21 @@ def fin_controller(t, state, controller, config, reference, environment):
     q_min_cutoff = getattr(config, 'q_min_cutoff_pa', 100.0)
 
     cutoff_reason = None
-    if t < config.control_start_delay_s:
+    rail_clearance_height_m = config.control_start_min_height_above_launch_m
+    rail_clearance_time_s = controller.get("_rail_clearance_time_s")
+    if z_local < rail_clearance_height_m:
+        controller["_seen_below_rail_clearance"] = True
+    if rail_clearance_time_s is None and z_local >= rail_clearance_height_m:
+        if controller.get("_seen_below_rail_clearance", False):
+            rail_clearance_time_s = float(t)
+        else:
+            rail_clearance_time_s = max(0.0, float(t) - config.control_start_delay_s)
+        controller["_rail_clearance_time_s"] = rail_clearance_time_s
+
+    if rail_clearance_time_s is None:
+        cutoff_reason = "below_rail_clearance"
+    elif t < rail_clearance_time_s + config.control_start_delay_s:
         cutoff_reason = "before_delay"
-    elif z_local < config.control_start_min_height_above_launch_m:
-        cutoff_reason = "below_min_height"
     elif vz <= 0:
         cutoff_reason = "descending"
     elif t > ref_time_limit:
@@ -504,6 +515,8 @@ def build_controller(config):
         "_diagnostics": [],                 # list of per-sample diagnostic dicts
         "_last_raw_deltas": np.zeros(4),    # raw deltas before rate/authority limit
         "_last_delta_limit": 0.0,           # effective delta_limit_rad at last sample
+        "_rail_clearance_time_s": None,     # first time z_enu exceeds rail + margin
+        "_seen_below_rail_clearance": False,
     }
 
 

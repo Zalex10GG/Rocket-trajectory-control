@@ -7,8 +7,6 @@ Two output subdirectories are produced per run:
 """
 
 import os
-import matplotlib
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import src.reference as ref_mod
@@ -108,21 +106,25 @@ def generate_all_plots(flight_history, reference, metrics, config, output_dir=No
     # ------------------------------------------------------------------
     # plots/simulation/  (full flight)
     # ------------------------------------------------------------------
-    _plot_trajectory_3d(pos_real_local, pos_ref_local_full, sim_dir)
-    _plot_trajectory_2d(pos_real_local, pos_ref_local_full, sim_dir)
+    show_plots = bool(getattr(config, "show_plots", False))
+
+    _plot_trajectory_3d(pos_real_local, pos_ref_local_full, sim_dir, keep_open=show_plots)
+    _plot_trajectory_2d(pos_real_local, pos_ref_local_full, sim_dir, keep_open=show_plots)
 
     # ------------------------------------------------------------------
     # plots/control/  (control phase only)
     # ------------------------------------------------------------------
-    _plot_position_per_axis(ctrl_times, pos_real_ctrl, pos_ref_ctrl, ctrl_dir)
-    _plot_tracking_errors(ctrl_times, pos_real_ctrl, pos_ref_ctrl, ctrl_dir)
-    _plot_fin_actuation(ctrl_times, ctrl_history, ctrl_dir)
-    _plot_attitude_euler(ctrl_times, ctrl_history, ctrl_dir)
-    _plot_body_rates(ctrl_times, ctrl_history, ctrl_dir)
-    _plot_trajectory_3d(pos_real_ctrl, pos_ref_ctrl, ctrl_dir, label_prefix="Control Phase: ")
-    _plot_trajectory_2d(pos_real_ctrl, pos_ref_ctrl, ctrl_dir, label_prefix="Control Phase: ")
+    _plot_position_per_axis(ctrl_times, pos_real_ctrl, pos_ref_ctrl, ctrl_dir, keep_open=show_plots)
+    _plot_tracking_errors(ctrl_times, pos_real_ctrl, pos_ref_ctrl, ctrl_dir, keep_open=show_plots)
+    _plot_fin_actuation(ctrl_times, ctrl_history, ctrl_dir, keep_open=show_plots)
+    _plot_attitude_euler(ctrl_times, ctrl_history, ctrl_dir, keep_open=show_plots)
+    _plot_body_rates(ctrl_times, ctrl_history, ctrl_dir, keep_open=show_plots)
+    _plot_trajectory_3d(pos_real_ctrl, pos_ref_ctrl, ctrl_dir, label_prefix="Control Phase: ", keep_open=show_plots)
+    _plot_trajectory_2d(pos_real_ctrl, pos_ref_ctrl, ctrl_dir, label_prefix="Control Phase: ", keep_open=show_plots)
 
     print(f"Plots generated in {output_dir}")
+    if show_plots:
+        plt.show()
 
 
 def generate_rocket_creation_plots(rocket, components, output_dir):
@@ -154,7 +156,7 @@ def generate_rocket_creation_plots(rocket, components, output_dir):
 # Internal plotting helpers (single-purpose, save to given directory)
 # ---------------------------------------------------------------------------
 
-def _plot_trajectory_3d(pos_real, pos_ref, out_dir, label_prefix=""):
+def _plot_trajectory_3d(pos_real, pos_ref, out_dir, label_prefix="", keep_open=False):
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection="3d")
     ax.plot(
@@ -177,10 +179,11 @@ def _plot_trajectory_3d(pos_real, pos_ref, out_dir, label_prefix=""):
     ax.set_title(f"{label_prefix}3D Trajectory Tracking (Local Origin)")
     ax.legend()
     plt.savefig(os.path.join(out_dir, "trajectory_3d.png"))
-    plt.close()
+    if not keep_open:
+        plt.close(fig)
 
 
-def _plot_trajectory_2d(pos_real, pos_ref, out_dir, label_prefix=""):
+def _plot_trajectory_2d(pos_real, pos_ref, out_dir, label_prefix="", keep_open=False):
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
     axes[0].plot(pos_real[:, 0], pos_real[:, 1], label="Real", color="blue")
@@ -210,10 +213,11 @@ def _plot_trajectory_2d(pos_real, pos_ref, out_dir, label_prefix=""):
 
     plt.tight_layout()
     plt.savefig(os.path.join(out_dir, "trajectory_2d_projections.png"))
-    plt.close()
+    if not keep_open:
+        plt.close(fig)
 
 
-def _plot_position_per_axis(times, pos_real, pos_ref, out_dir):
+def _plot_position_per_axis(times, pos_real, pos_ref, out_dir, keep_open=False):
     fig, axes = plt.subplots(3, 1, figsize=(10, 10), sharex=True)
     labels = ["X (East)", "Y (North)", "Z (Up)"]
     for i in range(3):
@@ -226,10 +230,11 @@ def _plot_position_per_axis(times, pos_real, pos_ref, out_dir):
     fig.suptitle("Control Phase: Per-Axis Position Tracking")
     plt.tight_layout(rect=(0, 0.03, 1, 0.95))
     plt.savefig(os.path.join(out_dir, "position_per_axis.png"))
-    plt.close()
+    if not keep_open:
+        plt.close(fig)
 
 
-def _plot_tracking_errors(times, pos_real, pos_ref, out_dir):
+def _plot_tracking_errors(times, pos_real, pos_ref, out_dir, keep_open=False):
     errors = pos_ref - pos_real
     error_norm = np.linalg.norm(errors, axis=1)
 
@@ -251,11 +256,12 @@ def _plot_tracking_errors(times, pos_real, pos_ref, out_dir):
 
     plt.tight_layout()
     plt.savefig(os.path.join(out_dir, "tracking_errors.png"))
-    plt.close()
+    if not keep_open:
+        plt.close(fig)
 
 
-def _plot_fin_actuation(times, ctrl_history, out_dir):
-    plt.figure(figsize=(10, 6))
+def _plot_fin_actuation(times, ctrl_history, out_dir, keep_open=False):
+    fig = plt.figure(figsize=(10, 6))
     deltas = np.array([s["deltas"] for s in ctrl_history]) * 180 / np.pi
     for i in range(4):
         plt.plot(times, deltas[:, i], label=f"Fin {i+1}")
@@ -265,11 +271,12 @@ def _plot_fin_actuation(times, ctrl_history, out_dir):
     plt.legend()
     plt.grid(True)
     plt.savefig(os.path.join(out_dir, "fin_actuation.png"))
-    plt.close()
+    if not keep_open:
+        plt.close(fig)
 
 
-def _plot_attitude_euler(times, ctrl_history, out_dir):
-    plt.figure(figsize=(10, 6))
+def _plot_attitude_euler(times, ctrl_history, out_dir, keep_open=False):
+    fig = plt.figure(figsize=(10, 6))
     eulers = np.array([utils.quaternion_to_euler(s["attitude_quaternion"]) for s in ctrl_history]) * 180 / np.pi
     plt.plot(times, eulers[:, 0], label="Roll (phi)")
     plt.plot(times, eulers[:, 1], label="Pitch (theta)")
@@ -280,11 +287,12 @@ def _plot_attitude_euler(times, ctrl_history, out_dir):
     plt.legend()
     plt.grid(True)
     plt.savefig(os.path.join(out_dir, "attitude_euler.png"))
-    plt.close()
+    if not keep_open:
+        plt.close(fig)
 
 
-def _plot_body_rates(times, ctrl_history, out_dir):
-    plt.figure(figsize=(10, 6))
+def _plot_body_rates(times, ctrl_history, out_dir, keep_open=False):
+    fig = plt.figure(figsize=(10, 6))
     omega = np.array([s["body_rates_rad_s"] for s in ctrl_history]) * 180 / np.pi
     plt.plot(times, omega[:, 0], label="ωx (Roll rate)")
     plt.plot(times, omega[:, 1], label="ωy (Pitch rate)")
@@ -295,4 +303,5 @@ def _plot_body_rates(times, ctrl_history, out_dir):
     plt.legend()
     plt.grid(True)
     plt.savefig(os.path.join(out_dir, "body_rates.png"))
-    plt.close()
+    if not keep_open:
+        plt.close(fig)
