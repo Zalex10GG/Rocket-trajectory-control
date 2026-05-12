@@ -1,4 +1,17 @@
+"""
+Utility functions for quaternion math and control window detection.
+
+Conventions:
+- Quaternions are [w, x, y, z] (scalar-first).
+- Control-active window: samples where the controller diagnostics report
+  ``control_active=True``.  This is the authoritative signal, not nonzero
+  deltas alone.
+- Ascent window: from control activation to apogee (may include post-cutoff
+  coasting when dynamic pressure drops).
+"""
+
 import numpy as np
+
 
 def quaternion_conjugate(q):
     """Returns the conjugate of a quaternion [w, x, y, z]."""
@@ -20,8 +33,16 @@ def quaternion_from_vectors(v_from, v_to):
     Returns a quaternion representing the rotation from v_from to v_to.
     Both vectors must be normalized.
     """
-    v_from = v_from / np.linalg.norm(v_from)
-    v_to = v_to / np.linalg.norm(v_to)
+    norm_from = np.linalg.norm(v_from)
+    norm_to = np.linalg.norm(v_to)
+    
+    if norm_from < 1e-9:
+        raise ValueError("v_from vector is too small (near zero norm).")
+    if norm_to < 1e-9:
+        raise ValueError("v_to vector is too small (near zero norm).")
+
+    v_from = v_from / norm_from
+    v_to = v_to / norm_to
     
     dot = np.dot(v_from, v_to)
     if dot > 0.999999:
@@ -65,35 +86,105 @@ def quaternion_to_euler(q):
 
     return roll, pitch, yaw
 
-def get_control_window_indices(flight_history):
+
+def get_control_window_indices(flight_history, controller_state=None):
     """
-    Identifies the indices of the control phase window in flight_history.
-    Returns (start_idx, end_idx).
-    Control phase starts from first nonzero fin deflection until apogee.
+    Identifies indices for the active-control and ascent windows.
+
+    The active-control window is defined from the first sample where the
+    controller diagnostics report ``control_active=True`` to the last such
+    sample.  If no diagnostics are available, falls back to nonzero deltas.
+
+    The ascent window extends from the first active-control sample to apogee.
+
+    Parameters
+    ----------
+    flight_history : list[dict]
+        Flight state records.
+    controller_state : dict, optional
+        Controller state with ``_diagnostics`` list for authoritative
+        active-control detection.
+
+    Returns
+    -------
+    tuple[int, int]
+        ``(ctrl_start_idx, apogee_idx)`` — active-control start and apogee end.
     """
     if not flight_history:
         return 0, 0
-    
-    deltas = np.array([s['deltas'] for s in flight_history])
+
     pos_z = np.array([s['position_enu_m'][2] for s in flight_history])
-    
-    # Control active when any delta is significantly non-zero
+    times = np.array([s['time_s'] for s in flight_history])
+
+    # Determine active-control start from diagnostics if available
+    ctrl_start_idx = 0
+    diag = controller_state.get("_diagnostics", []) if controller_state else []
+    if diag:
+        active_times = [d["time_s"] for d in diag if d.get("control_active", False)]
+        if active_times:
+            first_active_t = min(active_times)
+            # Find the flight_history index closest to first_active_t
+            ctrl_start_idx = int(np.argmin(np.abs(times - first_active_t)))
+
+    if ctrl_start_idx == 0:
+        # Fallback: use nonzero deltas
+        deltas = np.array([s['deltas'] for s in flight_history])
+        ctrl_active_mask = np.any(np.abs(deltas) > 1e-6, axis=1)
+        ctrl_active_indices = np.where(ctrl_active_mask)[0]
+        if len(ctrl_active_indices) > 0:
+            ctrl_start_idx = ctrl_active_indices[0]
+
+    # Apogee is max altitude
+    apogee_idx = int(np.argmax(pos_z))
+
+    # Sanity check: ensure start is before end
+    if ctrl_start_idx >= apogee_idx:
+        ctrl_start_idx = 0
+
+    return int(ctrl_start_idx), int(apogee_idx)
+
+
+def get_active_control_window_indices(flight_history, controller_state=None):
+    """
+    Returns the start and end indices of the strictly active-control window.
+
+    Unlike ``get_control_window_indices``, this does NOT extend to apogee.
+    It returns the first and last samples where the controller was actively
+    commanding control (based on diagnostics or nonzero deltas).
+
+    Parameters
+    ----------
+    flight_history : list[dict]
+        Flight state records.
+    controller_state : dict, optional
+        Controller state with ``_diagnostics``.
+
+    Returns
+    -------
+    tuple[int, int]
+        ``(active_start_idx, active_end_idx)``.
+    """
+    if not flight_history:
+        return 0, 0
+
+    times = np.array([s['time_s'] for s in flight_history])
+
+    # Prefer diagnostics for authoritative active window
+    diag = controller_state.get("_diagnostics", []) if controller_state else []
+    if diag:
+        active_times = [d["time_s"] for d in diag if d.get("control_active", False)]
+        if active_times:
+            first_t = min(active_times)
+            last_t = max(active_times)
+            start_idx = int(np.argmin(np.abs(times - first_t)))
+            end_idx = int(np.argmin(np.abs(times - last_t)))
+            return start_idx, end_idx
+
+    # Fallback: nonzero deltas
+    deltas = np.array([s['deltas'] for s in flight_history])
     ctrl_active_mask = np.any(np.abs(deltas) > 1e-6, axis=1)
     ctrl_active_indices = np.where(ctrl_active_mask)[0]
-    
-    if len(ctrl_active_indices) == 0:
-        # If no control, use full flight
-        start_idx = 0
-    else:
-        start_idx = ctrl_active_indices[0]
-        
-    # Apogee is max altitude
-    end_idx = np.argmax(pos_z)
-    
-    # Sanity check: ensure start is before end
-    if start_idx >= end_idx:
-        # If control started after apogee (shouldn't happen with terminate_on_apogee), 
-        # or exactly at apogee, return a minimal window or the full range
-        start_idx = 0
-        
-    return int(start_idx), int(end_idx)
+    if len(ctrl_active_indices) > 0:
+        return int(ctrl_active_indices[0]), int(ctrl_active_indices[-1])
+
+    return 0, 0

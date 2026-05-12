@@ -5,10 +5,34 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "cdsapi==0.7.7",
     "matplotlib==3.10.9",
     "numpy==2.4.4",
     "pandas==3.0.2",
     "rocketpy==1.12.1",
     "scipy==1.17.1",
     "toml==0.10.2",
+]
+
+[project.scripts]
+rocket-control = "main:main"
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+[tool.setuptools]
+py-modules = ["main", "config", "initial_data"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[tool.uv]
+package = true
+
+[tool.mypy]
+ignore_missing_imports = true
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
 ]

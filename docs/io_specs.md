@@ -11,60 +11,65 @@ TOML format defining rocket geometry, aerodynamics, and control actuation parame
 ```toml
 id = "leon_2"
 name = "Leon 2"
-description = "Cohete de referencia para la ruta oficial V1"
+description = "Cohete de referencia"
 
-[geometry]
-dry_mass_kg = 22.0
-radius_m = 0.075
-length_m = 2.8
-center_of_mass_without_motor_m = 1.35
-inertia_xx_kg_m2 = 0.12      # Roll inertia
-inertia_yy_kg_m2 = 8.50      # Pitch inertia
-inertia_zz_kg_m2 = 8.50      # Yaw inertia
+[nosecone]
+kind = "vonkarman"
+length_m = 0.5
+base_radius_m = 0.05
+position_m = 0
+
+[body]
+dry_mass_kg = 8.0
+radius_m = 0.05
+length_m = 2.556
+center_of_mass_without_motor_m = 1.29
+inertia_xx_kg_m2 = 0.08      # Roll inertia
+inertia_yy_kg_m2 = 0.08      # Pitch inertia
+inertia_zz_kg_m2 = 0.01      # Yaw inertia (note: 0.01 for Leon 2)
+coordinate_system_orientation = "tail_to_nose"
 
 [fins]
 count = 4
-configuration = "+"            # Cross configuration
-root_chord_m = 0.24
-tip_chord_m = 0.10
-span_m = 0.12
-sweep_length_m = 0.08
+root_chord_m = 0.203
+tip_chord_m = 0.0625
+span_m = 0.102
+sweep_angle_deg = 36.0        # Using sweep_angle, not sweep_length
+position_from_tail_m = 0.203
 cant_angle_deg = 0.0
-position_from_tail_m = 0.20
-
-[stability_derivatives]
-clalpha_per_rad = 4.8          # Lift slope
-cmalpha_per_rad = -1.2          # Pitch moment slope
-cybeta_per_rad = 0.0            # Side force slope
-cnbeta_per_rad = 1.1            # Yaw moment slope
+controlled = true
 
 [control_actuation]
-reference_area_m2 = 0.01767     # Fin reference area (m²)
-reference_length_m = 0.15        # Fin reference length (m)
-fin_aerodynamic_center_x_m = 0.7  # From nose tip (m)
-fin_aerodynamic_center_y_m = 0.15 # Radial arm (m)
-cN_delta_per_rad = 4.8           # Normal force derivative wrt delta
-cm_delta_per_rad = -25.2         # Pitch moment derivative wrt delta
-cy_delta_per_rad = 4.8           # Side force derivative wrt delta
-cn_moment_delta_per_rad = -25.2  # Yaw moment derivative wrt delta
-cl_delta_per_rad = 0.0           # Roll moment derivative wrt delta
-cd_delta_per_rad = 0.0           # Drag delta derivative
-k_drag_induced = 0.0            # Induced drag coefficient
-delta_max_rad = 0.349            # Max fin deflection (~20°)
-delta_dot_max_rad_s = 5.236      # Max deflection rate (rad/s)
+reference_area_m2 = 0.007853981633974483   # Fin reference area (m²)
+reference_length_m = 0.1452                 # MAC (m)
+cN_delta_per_rad = 9.343586365106          # Normal force derivative (increment only)
+cy_delta_per_rad = 9.343586365106          # Side force derivative (increment only)
+cl_delta_per_rad = 0.5                     # Roll moment derivative
+k_drag_induced = 0.295907824866           # Induced drag factor
+delta_max_rad = 0.3490658503988659        # Max fin deflection (~20°)
+delta_dot_max_rad_s = 5.235987755982989    # Max deflection rate (rad/s)
 
-[motor_interface]
-mount_diameter_m = 0.075
-mount_length_m = 0.80
-max_motor_mass_kg = 12.0
-recommended_motor_ids = ["pro75_3g"]
-
-[drag]
-default_drag_id = "leon_2_drag"
-allowed_drag_ids = ["leon_2_drag", "leon_2_nominal"]
+[motor]
+burn_time_start_s = 0.1
+burn_time_end_s = 2.129
+chamber_radius_m = 0.0375
+chamber_height_m = 0.486
+chamber_position_m = 0.0
+propellant_initial_mass_kg = 1.755
+nozzle_radius_m = 0.004
+dry_mass_kg = 1.586
+center_of_dry_mass_position_m = 0.25
+dry_inertia_xx_kg_m2 = 0.001
+dry_inertia_yy_kg_m2 = 0.001
+dry_inertia_zz_kg_m2 = 0.0
+nozzle_position_m = 0.0
+coordinate_system_orientation = "nozzle_to_combustion_chamber"
 ```
 
-**Usage**: Loaded by `initial_data.py::load_initial_case_data()` using `toml.load()`.
+**Usage**: 
+- Loaded by `initial_data.py::load_initial_case_data(config)` using `toml.load()`
+- `config` provides launch site parameters (latitude, longitude, elevation, etc.)
+- Motor section uses `GenericMotor` (not `SolidMotor`)
 
 ### 2. Motor Thrust Curve: `data/motors/*.csv`
 
@@ -83,7 +88,9 @@ time_s,thrust_N
 ...
 ```
 
-**Usage**: Loaded by `src/rocket_builder.py::build_rocket()` using `pandas.read_csv()`, passed to `SolidMotor(thrust_source=...)`.
+**Usage**: Loaded by `src/rocket_builder.py::build_rocket()` using `pandas.read_csv()`, passed to `GenericMotor(thrust_source=...)`. 
+
+**Note**: Motor parameters (burn time, chamber dimensions, inertia) are now in `[motor]` section of the TOML file, not hardcoded.
 
 ### 3. Drag Coefficient: `data/drag/*.csv`
 
@@ -129,9 +136,11 @@ time_s,x_enu_m,y_enu_m,z_enu_m,vx_enu_m_s,vy_enu_m_s,vz_enu_m_s
 - Creates `scipy.interpolate.interp1d` objects for each column
 - Sampled at arbitrary times via `sample_reference(reference, time_s)`
 
+**Provenance**: The default `data/trajectory/vertical.csv` is an **artificially generated vertical target** produced by `src/gen_reference.py`. It is NOT an uncontrolled passive baseline from the actual launch configuration. It defines a simple vertical ascent/descent profile with zero lateral displacement.
+
 **Generate vertical reference**:
 ```bash
-uv run python -c "from src.gen_reference import generate_vertical_reference; generate_vertical_reference('data/trajectory/vertical.csv', max_altitude=1000, duration=20)"
+uv run py -c "from src.gen_reference import generate_vertical_reference; generate_vertical_reference('data/trajectory/vertical.csv', max_altitude=1000, duration=20)"
 ```
 
 ## Output Files
@@ -215,29 +224,69 @@ Seven analysis plots (see [plots.md](plots.md) for details):
 
 | File | Description | Scope |
 |------|-------------|-------|
-| `trajectory_3d.png` | 3D trajectory comparison | Full flight |
-| `trajectory_2d_projections.png` | XY, XZ, YZ views | Full flight |
-| `position_per_axis.png` | Per-axis position tracking | Control phase |
-| `tracking_errors.png` | Tracking error norm and per-axis | Control phase |
-| `fin_actuation.png` | Fin deflection history | Control phase |
-| `attitude_euler.png` | Euler angles (roll, pitch, yaw) | Control phase |
-| `body_rates.png` | Body angular rates | Control phase |
+| `simulation/trajectory_3d.png` | 3D trajectory comparison | Full flight |
+| `simulation/trajectory_2d_projections.png` | XY, XZ, YZ views | Full flight |
+| `simulation/rocket.png` | Rocket diagram | Static |
+| `simulation/static_margin.png` | Static margin | Static |
+| `simulation/motor_thrust.png` | Motor thrust curve | Static |
+| `control/position_per_axis.png` | Per-axis position tracking | Active control |
+| `control/tracking_errors.png` | Tracking error norm and per-axis | Active control |
+| `control/fin_actuation.png` | Fin deflection history | Active control |
+| `control/attitude_euler.png` | Euler angles (roll, pitch, yaw) | Active control |
+| `control/body_rates.png` | Body angular rates | Active control |
+| `control/trajectory_3d.png` | 3D trajectory (control phase) | Active control |
+| `control/trajectory_2d_projections.png` | 2D projections (control phase) | Active control |
+
+### 5. `controller_diagnostics.csv`
+
+Per-sample controller audit trail (new artifact).
+
+**Columns**:
+| Column | Description | Units |
+|--------|-------------|-------|
+| `time_s` | Callback timestamp | s |
+| `control_active` | Whether control was active | bool |
+| `cutoff_reason` | Why control was inactive | string |
+| `q_dynamic_pa` | Dynamic pressure | Pa |
+| `airspeed_m_s` | Airspeed | m/s |
+| `delta_limit_rad` | Effective authority limit | rad |
+| `effective_cD` | Control-induced drag coefficient | - |
+| `raw_deltas_rad_0..3` | Raw deltas before limiting | rad |
+| `limited_deltas_rad_0..3` | Final deltas after all limits | rad |
+| `position_error_enu_m_0..2` | Position error vector | m |
+| `velocity_error_enu_m_s_0..2` | Velocity error vector | m/s |
+| `attitude_error_quat_0..3` | Attitude error quaternion | - |
+| `commanded_accel_enu_m_s2_0..2` | Commanded acceleration | m/s² |
 
 ## Control Phase Detection
 
-The "control phase" is identified by `src/utils.py::get_control_window_indices()`:
+The "control phase" is identified by two functions in `src/utils.py`:
 
+### Active-Control Window
 ```python
-# Control is active when ANY fin has deflection > 1e-6 rad
+# Authoritative (from controller diagnostics):
+active_times = [d["time_s"] for d in diag if d["control_active"]]
+start = first active time
+end = last active time
+
+# Fallback: nonzero deltas
 ctrl_active_mask = np.any(np.abs(deltas) > 1e-6, axis=1)
-start_idx = first timestep with active control
-end_idx = apogee (max altitude)
+start = first True index
+end = last True index
+```
+
+### Ascent Window
+```python
+start = same as active-control start
+end = apogee (max altitude in Z)
 ```
 
 **Control activation conditions** (in `src/controllers.py::fin_controller()`):
 1. `t >= config.control_start_delay_s` (default: 3.0s)
 2. `z_local >= config.control_start_min_height_above_launch_m` (default: 11.0m)
 3. `vz > 0` (ascending phase)
+4. `q_dynamic >= q_min_cutoff_pa` (sufficient aerodynamic authority)
+5. `t <= ref_time_limit` (within reference horizon)
 
 ## Data Flow Summary
 
