@@ -6,6 +6,8 @@ Implements the **FinAdapter** class that bridges the controller's fin deflection
 
 **Important**: This version uses only incremental control coefficients. Passive aerodynamics (alpha/beta effects) are handled by the `TrapezoidalFins` object in RocketPy. The `FinAdapter` only models the delta-dependent increment.
 
+**RocketPy Function Behavior (v1.12.1)**: `Function` objects wrapping callables retain them as `SourceType.CALLABLE` and evaluate via `self.source(*args)` at each call. They are NOT cached as spline tables. This means the coefficient functions always read the latest `current_deltas` from the module-level controller state singleton at evaluation time.
+
 ## Class: `FinAdapter`
 
 ### Constructor

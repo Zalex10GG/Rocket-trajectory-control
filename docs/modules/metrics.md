@@ -2,7 +2,11 @@
 
 ## Overview
 
-Computes **quantitative tracking performance metrics** for the controlled flight. Focuses on the control phase (when fins are actively deflecting) for meaningful performance evaluation.
+Computes **quantitative tracking performance metrics** for the controlled flight. Focuses on the active-control phase (when fins are actively commanding deflection) for meaningful performance evaluation.
+
+Distinguishes between two windows:
+- **Active-control window**: samples where the controller diagnostics report `control_active=True`. This is the authoritative signal, not nonzero deltas alone.
+- **Ascent window**: from control activation to apogee (may include post-cutoff coasting when dynamic pressure drops).
 
 ## Key Functions
 
@@ -122,9 +126,15 @@ All computed only during the **control phase** (first fin deflection to apogee).
 | `time_of_apogee_s` | Time at apogee | s |
 | `final_time_s` | Simulation end time | s |
 | `max_speed_m_s` | Maximum velocity magnitude | m/s |
-| `control_phase_start_s` | Control activation time | s |
-| `control_phase_end_s` | Control deactivation time | s |
-| `control_phase_duration_s` | Control window duration | s |
+| `control_active_start_s` | First active-control sample time | s |
+| `control_active_end_s` | Last active-control sample time | s |
+| `control_active_duration_s` | Active-control window duration | s |
+| `ascent_window_start_s` | Ascent window start (same as active start) | s |
+| `ascent_window_end_s` | Ascent window end (apogee time) | s |
+| `ascent_window_duration_s` | Ascent window duration | s |
+| `max_control_cD` | Maximum control-induced drag coefficient | - |
+| `mean_control_cD` | Mean control-induced drag coefficient | - |
+| `duplicate_callback_count` | Number of duplicate controller callbacks detected | - |
 
 ---
 
@@ -166,16 +176,31 @@ Single-row CSV with columns matching `summary` keys.
 
 ## Control Phase Detection
 
-The control phase is identified by `utils.get_control_window_indices()`:
+Two window functions in `utils.py` determine the metric scope:
 
+### Active-Control Window
 ```python
-# Control is "active" when ANY fin has deflection > 1e-6 rad
+# From controller diagnostics (authoritative):
+active_times = [d["time_s"] for d in diag if d["control_active"]]
+start = first active time
+end = last active time
+
+# Fallback (no diagnostics): nonzero deltas
 ctrl_active_mask = np.any(np.abs(deltas) > 1e-6, axis=1)
-start_idx = first index where ctrl_active_mask is True
-end_idx = apogee (max altitude in Z)
+start = first True index
+end = last True index
 ```
 
-**Why only control phase?** Metrics during motor burn (first ~3.5s) would be meaningless since fins aren't controlled yet.
+### Ascent Window
+```python
+# From controller diagnostics or deltas (same start as active)
+end = apogee (max altitude in Z)
+```
+
+The active-control window is used for control performance metrics.
+The ascent window is used for apogee and flight summary metrics.
+
+**Why separate?** Control may deactivate before apogee (e.g., low dynamic pressure cutoff). Using the ascent window for control metrics would dilute them with non-control coasting samples.
 
 ---
 
@@ -185,11 +210,13 @@ end_idx = apogee (max altitude in Z)
 - `ctrl_mae_3d_m` < 5m
 - `ctrl_rmse_3d_m` < 10m
 - `fin_saturation_ratio` < 0.1 (fins not frequently saturated)
+- `max_control_cD` < 1.0 (moderate control drag)
 
 ### Poor Tracking
 - `ctrl_mae_3d_m` > 20m
 - `ctrl_rmse_3d_m` > 30m
 - `fin_saturation_ratio` > 0.5 (fins saturated >50% of the time)
+- `max_control_cD` > 5.0 (excessive control drag)
 
 ### Possible Causes of Poor Tracking
 1. **Gains too low**: Increase `Kp_guidance`, `Kp_attitude`
@@ -197,6 +224,8 @@ end_idx = apogee (max altitude in Z)
 3. **Reference infeasible**: Trajectory too aggressive (high accelerations)
 4. **Control starts too late**: Decrease `control_start_delay_s`
 5. **Fins saturated**: Increase `delta_max_rad` or reduce gains
+6. **Excessive control drag**: Increase `qbar_full_authority_pa` or reduce `cN_delta_per_rad`
+7. **Reference mismatch**: Ensure reference is compatible with launch configuration
 
 ---
 

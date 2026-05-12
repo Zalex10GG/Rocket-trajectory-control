@@ -226,6 +226,14 @@ time_s,x_enu_m,y_enu_m,z_enu_m,vx_enu_m_s,vy_enu_m_s,vz_enu_m_s
 
 All values in **local ENU** coordinates (launch pad = 0,0,0).
 
+### Reference Provenance
+
+The default `data/trajectory/vertical.csv` is an **artificially generated vertical target** produced by `src/gen_reference.py`. It is NOT an uncontrolled passive baseline from the actual launch configuration. It defines a simple vertical ascent/descent profile with zero lateral displacement, intended as a tracking target for the controller.
+
+For meaningful tracking evaluation, the reference trajectory should be compatible with the configured launch parameters (inclination, heading, motor). The current nominal case uses `inclination_deg = 87.0` (slightly off-vertical) with a vertical reference, which means the controller must correct for the inherent lateral drift from the inclined launch rail.
+
+The reference file hash is recorded in each run's `manifest.json` for reproducibility.
+
 ## Troubleshooting
 
 ### Issue: Module not found

@@ -164,17 +164,29 @@ def export_results(
 **Output Structure**:
 ```
 results/20260429_143052/
-├── flight_history.csv
-├── flight_summary.csv
-├── metrics.json
+├── flight_history.csv          # Complete simulation state history
+├── flight_summary.csv          # Key flight events and metrics
+├── metrics.json                # Control performance metrics
+├── controller_diagnostics.csv  # Per-sample controller audit trail
+├── effective_config.json       # Config snapshot
+├── manifest.json               # Asset hashes and git metadata
+├── rocket_definition.toml      # Copy of TOML
+├── rocket_artifacts.json       # Rocket stats
 └── plots/
-    ├── trajectory_3d.png
-    ├── trajectory_2d_projections.png
-    ├── position_per_axis.png
-    ├── tracking_errors.png
-    ├── fin_actuation.png
-    ├── attitude_euler.png
-    └── body_rates.png
+    ├── simulation/             # Full-flight trajectory plots
+    │   ├── trajectory_3d.png
+    │   ├── trajectory_2d_projections.png
+    │   ├── rocket.png
+    │   ├── static_margin.png
+    │   └── motor_thrust.png
+    └── control/                # Active-control-phase plots
+        ├── position_per_axis.png
+        ├── tracking_errors.png
+        ├── fin_actuation.png
+        ├── attitude_euler.png
+        ├── body_rates.png
+        ├── trajectory_3d.png
+        └── trajectory_2d_projections.png
 ```
 
 ---
@@ -283,15 +295,42 @@ controller["deltas_history"][float(t)] = deltas  # t is from RocketPy
 sol[:, 0]  # These times may not match callback times exactly
 ```
 
-**Solution**: When extracting history, we find the closest timestamp in `deltas_history`:
+**Solution**: We use **"latest command at or before solution time"** reconstruction with `np.searchsorted(side='right')`:
 
 ```python
-ctrl_times = np.array(list(controller["deltas_history"].keys()))
-idx = (np.abs(ctrl_times - t)).argmin()  # Find nearest
-deltas = controller["deltas_history"][ctrl_times[idx]]
+idx = np.searchsorted(ctrl_times_sorted, t, side='right')
+if idx > 0:
+    deltas = ctrl_deltas_sorted[idx - 1]
+else:
+    deltas = np.zeros(4)  # No command yet
 ```
 
-This introduces a small error (interpolation would be better), but works for post-processing.
+This ensures that:
+- Rows before actual control activation keep zero deltas.
+- No future command is assigned to an earlier solution timestamp.
+- The exported history is truthful to the solver state at each node.
+
+### Controller Diagnostics Export
+
+Each run exports a `controller_diagnostics.csv` with per-sample audit data:
+
+| Column | Description |
+|--------|-------------|
+| `time_s` | Callback timestamp |
+| `control_active` | Whether control was active |
+| `cutoff_reason` | Why control was inactive (if applicable) |
+| `q_dynamic_pa` | Dynamic pressure |
+| `airspeed_m_s` | Airspeed |
+| `delta_limit_rad` | Effective authority limit (q-bar scheduled) |
+| `effective_cD` | Control-induced drag coefficient |
+| `raw_deltas_rad_*` | Raw deltas before rate/authority limiting |
+| `limited_deltas_rad_*` | Final deltas after all limits |
+| `position_error_enu_m_*` | Position error vector |
+| `velocity_error_enu_m_s_*` | Velocity error vector |
+| `attitude_error_quat_*` | Attitude error quaternion |
+| `commanded_accel_enu_m_s2_*` | Commanded acceleration |
+
+Duplicate callback detections are recorded with `cutoff_reason="duplicate_callback"`.
 
 ---
 
@@ -323,17 +362,13 @@ From `config.py`:
 
 1. **Private API**: Uses `rocketpy.control.controller._Controller` and `rocketpy._add_controllers()`. These may change or be removed in future RocketPy versions.
 
-2. **Timestep Mismatch**: The controller callback times and `flight.solution` times may not align perfectly. The current implementation uses nearest-neighbor lookup, which is suboptimal.
+2. **Duplicate Callbacks**: RocketPy may invoke the controller callback multiple times at the same timestamp. The controller is idempotent: duplicate calls return the existing command without advancing state. Duplicate detections are counted in `controller._duplicate_callback_count`.
 
-3. **No Interpolation**: When extracting deltas for history, we don't interpolate between controller callbacks. This may cause discontinuities in `flight_history.csv`.
+3. **q-bar Authority Scheduling**: The controller uses a configurable q-bar scheduled deflection limit to prevent excessive drag at low dynamic pressure. Parameters are in `config.py` (`qbar_min_authority_pa`, `qbar_full_authority_pa`, `delta_max_qbar_min_rad`).
 
-4. **Quaternion Convention**: Assumes RocketPy uses `[w, x, y, z]` ENU→Body quaternions. Verify this matches your RocketPy version.
+4. **Terminate-on-Apogee**: Set `config.terminate_on_apogee = True` for faster tuning runs (simulation ends at apogee). Default is `False` (full flight through descent).
 
-5. **Memory Usage**: `flight_history` stores all timesteps in memory. For long simulations, this may be significant.
-
-6. **Time Overshoot**: `time_overshoot=False` is set for high precision, but may slow down simulation. Set to `True` for faster (but less accurate) runs.
-
-7. **Launch Position**: The conversion to local ENU assumes the first timestep in `flight.solution` is at the launch position. This should be true for a properly initialized simulation.
+5. **Quaternion Convention**: Assumes RocketPy uses `[w, x, y, z]` ENU→Body quaternions. Verify this matches your RocketPy version.
 
 ---
 

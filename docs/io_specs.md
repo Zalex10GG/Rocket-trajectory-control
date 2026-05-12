@@ -136,6 +136,8 @@ time_s,x_enu_m,y_enu_m,z_enu_m,vx_enu_m_s,vy_enu_m_s,vz_enu_m_s
 - Creates `scipy.interpolate.interp1d` objects for each column
 - Sampled at arbitrary times via `sample_reference(reference, time_s)`
 
+**Provenance**: The default `data/trajectory/vertical.csv` is an **artificially generated vertical target** produced by `src/gen_reference.py`. It is NOT an uncontrolled passive baseline from the actual launch configuration. It defines a simple vertical ascent/descent profile with zero lateral displacement.
+
 **Generate vertical reference**:
 ```bash
 uv run py -c "from src.gen_reference import generate_vertical_reference; generate_vertical_reference('data/trajectory/vertical.csv', max_altitude=1000, duration=20)"
@@ -222,29 +224,69 @@ Seven analysis plots (see [plots.md](plots.md) for details):
 
 | File | Description | Scope |
 |------|-------------|-------|
-| `trajectory_3d.png` | 3D trajectory comparison | Full flight |
-| `trajectory_2d_projections.png` | XY, XZ, YZ views | Full flight |
-| `position_per_axis.png` | Per-axis position tracking | Control phase |
-| `tracking_errors.png` | Tracking error norm and per-axis | Control phase |
-| `fin_actuation.png` | Fin deflection history | Control phase |
-| `attitude_euler.png` | Euler angles (roll, pitch, yaw) | Control phase |
-| `body_rates.png` | Body angular rates | Control phase |
+| `simulation/trajectory_3d.png` | 3D trajectory comparison | Full flight |
+| `simulation/trajectory_2d_projections.png` | XY, XZ, YZ views | Full flight |
+| `simulation/rocket.png` | Rocket diagram | Static |
+| `simulation/static_margin.png` | Static margin | Static |
+| `simulation/motor_thrust.png` | Motor thrust curve | Static |
+| `control/position_per_axis.png` | Per-axis position tracking | Active control |
+| `control/tracking_errors.png` | Tracking error norm and per-axis | Active control |
+| `control/fin_actuation.png` | Fin deflection history | Active control |
+| `control/attitude_euler.png` | Euler angles (roll, pitch, yaw) | Active control |
+| `control/body_rates.png` | Body angular rates | Active control |
+| `control/trajectory_3d.png` | 3D trajectory (control phase) | Active control |
+| `control/trajectory_2d_projections.png` | 2D projections (control phase) | Active control |
+
+### 5. `controller_diagnostics.csv`
+
+Per-sample controller audit trail (new artifact).
+
+**Columns**:
+| Column | Description | Units |
+|--------|-------------|-------|
+| `time_s` | Callback timestamp | s |
+| `control_active` | Whether control was active | bool |
+| `cutoff_reason` | Why control was inactive | string |
+| `q_dynamic_pa` | Dynamic pressure | Pa |
+| `airspeed_m_s` | Airspeed | m/s |
+| `delta_limit_rad` | Effective authority limit | rad |
+| `effective_cD` | Control-induced drag coefficient | - |
+| `raw_deltas_rad_0..3` | Raw deltas before limiting | rad |
+| `limited_deltas_rad_0..3` | Final deltas after all limits | rad |
+| `position_error_enu_m_0..2` | Position error vector | m |
+| `velocity_error_enu_m_s_0..2` | Velocity error vector | m/s |
+| `attitude_error_quat_0..3` | Attitude error quaternion | - |
+| `commanded_accel_enu_m_s2_0..2` | Commanded acceleration | m/s² |
 
 ## Control Phase Detection
 
-The "control phase" is identified by `src/utils.py::get_control_window_indices()`:
+The "control phase" is identified by two functions in `src/utils.py`:
 
+### Active-Control Window
 ```python
-# Control is active when ANY fin has deflection > 1e-6 rad
+# Authoritative (from controller diagnostics):
+active_times = [d["time_s"] for d in diag if d["control_active"]]
+start = first active time
+end = last active time
+
+# Fallback: nonzero deltas
 ctrl_active_mask = np.any(np.abs(deltas) > 1e-6, axis=1)
-start_idx = first timestep with active control
-end_idx = apogee (max altitude)
+start = first True index
+end = last True index
+```
+
+### Ascent Window
+```python
+start = same as active-control start
+end = apogee (max altitude in Z)
 ```
 
 **Control activation conditions** (in `src/controllers.py::fin_controller()`):
 1. `t >= config.control_start_delay_s` (default: 3.0s)
 2. `z_local >= config.control_start_min_height_above_launch_m` (default: 11.0m)
 3. `vz > 0` (ascending phase)
+4. `q_dynamic >= q_min_cutoff_pa` (sufficient aerodynamic authority)
+5. `t <= ref_time_limit` (within reference horizon)
 
 ## Data Flow Summary
 
