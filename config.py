@@ -36,9 +36,9 @@ class Config:
     a_max_guidance_correction_m_s2: float = 8.0
 
     # Control activation
-    control_start_delay_s: float = 3.0
-    safety_margin_m: float = 5.0
-    control_start_min_height_above_launch_m: float = 10.0
+    control_start_delay_s: float = 1.0
+    safety_margin_m: float = 1.0
+    control_start_min_height_above_launch_m: float = 7.0
 
     # Control cutoff
     apogee_control_cutoff_delay_s: float = 0.5
@@ -75,7 +75,7 @@ class Config:
     longitude: float = -6.2713407985
     elevation_asl_m: float = 1000.0
     rail_length_m: float = 6.0
-    heading_deg: float = 2.0
+    heading_deg: float = 0.0
     inclination_deg: float = 87.0
 
     # Environment / Atmosphere
@@ -95,7 +95,7 @@ class Config:
     # Flags
     use_wind: bool = False  # True = real atmosphere (auto/Forecast/Reanalysis); False = standard_atmosphere
     save_results: bool = True
-    show_plots: bool = True
+    show_plots: bool = False
 
     # Internal: populated by rocket_builder from TOML [control_actuation]
     # These are set at runtime so the controller can compute cD diagnostics
