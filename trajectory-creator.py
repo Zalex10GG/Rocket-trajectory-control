@@ -59,9 +59,11 @@ def build_passive_rocket(case_data):
         nozzle_radius=require_key(m_params, "nozzle_radius_m", "motor"),
         dry_mass=require_key(m_params, "dry_mass_kg", "motor"),
         center_of_dry_mass_position=require_key(m_params, "center_of_dry_mass_position_m", "motor"),
+        # RocketPy expects (I11, I22, I33) where e3 is the longitudinal (roll) axis.
+        # In tail_to_nose coords: I11=Iyy (pitch), I22=Izz (yaw), I33=Ixx (roll/axial).
         dry_inertia=(
-            require_key(m_params, "dry_inertia_yy_kg_m2", "motor"), 
-            require_key(m_params, "dry_inertia_zz_kg_m2", "motor"), 
+            require_key(m_params, "dry_inertia_yy_kg_m2", "motor"),
+            require_key(m_params, "dry_inertia_zz_kg_m2", "motor"),
             require_key(m_params, "dry_inertia_xx_kg_m2", "motor")
         ),
         nozzle_position=require_key(m_params, "nozzle_position_m", "motor"),
@@ -81,6 +83,7 @@ def build_passive_rocket(case_data):
     rocket_kwargs = {
         "radius": require_key(body, "radius_m", "body"),
         "mass": require_key(body, "dry_mass_kg", "body"),
+        # RocketPy expects (I11, I22, I33) — see motor dry_inertia comment above.
         "inertia": (
             require_key(body, "inertia_yy_kg_m2", "body"), 
             require_key(body, "inertia_zz_kg_m2", "body"), 
@@ -94,10 +97,11 @@ def build_passive_rocket(case_data):
         
     rocket = Rocket(**rocket_kwargs)
     
-    # Motor coordinate-system origin is placed from TOML data. For the current
-    # GenericMotor definition, nozzle_position_m=0 means the nozzle/motor origin
-    # is at the tail-referenced rocket origin.
-    motor_position = require_key(m_params, "nozzle_position_m", "motor")
+    # Motor coordinate-system origin is placed from TOML data.
+    # Use 'position_m' (the motor origin in the rocket frame) consistently with
+    # rocket_builder.py.  Both 'nozzle_position_m' and 'position_m' are 0.0 in
+    # the current TOML, but we must read the same key to avoid silent divergence.
+    motor_position = m_params.get("position_m", 0.0)
     rocket.add_motor(motor, position=motor_position) 
     
     # 3. Add Aerodynamic Surfaces
@@ -131,7 +135,7 @@ def build_passive_rocket(case_data):
         "cant_angle": require_key(f, "cant_angle_deg", "fins"),
     }
     
-    print(f"\nDIAGNOSTIC - RocketPy Positions (Origin=Tail, Orientation=tail_to_nose):")
+    print("\nDIAGNOSTIC - RocketPy Positions (Origin=Tail, Orientation=tail_to_nose):")
     print(f"  Body Length: {require_key(body, 'length_m', 'body')} m")
     print(f"  Motor Position: {motor_position} m")
     print(f"  Fins Position: {fin_position} m")

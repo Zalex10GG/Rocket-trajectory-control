@@ -50,7 +50,7 @@ def save_rocketpy_plot(plot_func, path):
 # Core generators
 # ---------------------------------------------------------------------------
 
-def generate_all_plots(flight_history, reference, metrics, config, output_dir=None):
+def generate_all_plots(flight_history, reference, metrics, config, output_dir=None, controller_state=None):
     """
     Generates and saves all performance plots split into two subdirectories.
 
@@ -77,30 +77,39 @@ def generate_all_plots(flight_history, reference, metrics, config, output_dir=No
     if output_dir is None:
         output_dir = config.results_dir
 
-    sim_dir = os.path.join(output_dir, "plots", "simulation")
-    ctrl_dir = os.path.join(output_dir, "plots", "control")
+    sim_dir = os.path.join(output_dir, "simulation")
+    ctrl_dir = os.path.join(output_dir, "control")
     os.makedirs(sim_dir, exist_ok=True)
     os.makedirs(ctrl_dir, exist_ok=True)
 
     times = np.array([s["time_s"] for s in flight_history])
 
-    # Full-flight position arrays
+    # Full-flight position arrays (real)
     pos_real_local = np.array([s["position_enu_m"] for s in flight_history])
-    ref_states = [ref_mod.sample_reference(reference, t) for t in times]
-    pos_ref_local = np.array([r["position_enu_m"] for r in ref_states])
+    
+    # Sample reference exactly at the real flight times (needed for control plots)
+    ref_states_matched = [ref_mod.sample_reference(reference, t) for t in times]
+    pos_ref_local_matched = np.array([r["position_enu_m"] for r in ref_states_matched])
+    
+    # Sample reference over its ENTIRE timeline (for the full trajectory plots)
+    ref_times_full = reference['time_s']
+    ref_states_full = [ref_mod.sample_reference(reference, t) for t in ref_times_full]
+    pos_ref_local_full = np.array([r["position_enu_m"] for r in ref_states_full])
 
-    # Control window
-    start_idx, end_idx = utils.get_control_window_indices(flight_history)
+    # Active-control window (Task 5: use active window, not ascent-to-apogee)
+    start_idx, end_idx = utils.get_active_control_window_indices(
+        flight_history, controller_state=controller_state
+    )
     ctrl_history = flight_history[start_idx : end_idx + 1]
     ctrl_times = times[start_idx : end_idx + 1]
     pos_real_ctrl = pos_real_local[start_idx : end_idx + 1]
-    pos_ref_ctrl = pos_ref_local[start_idx : end_idx + 1]
+    pos_ref_ctrl = pos_ref_local_matched[start_idx : end_idx + 1]
 
     # ------------------------------------------------------------------
     # plots/simulation/  (full flight)
     # ------------------------------------------------------------------
-    _plot_trajectory_3d(pos_real_local, pos_ref_local, sim_dir)
-    _plot_trajectory_2d(pos_real_local, pos_ref_local, sim_dir)
+    _plot_trajectory_3d(pos_real_local, pos_ref_local_full, sim_dir)
+    _plot_trajectory_2d(pos_real_local, pos_ref_local_full, sim_dir)
 
     # ------------------------------------------------------------------
     # plots/control/  (control phase only)
@@ -113,7 +122,7 @@ def generate_all_plots(flight_history, reference, metrics, config, output_dir=No
     _plot_trajectory_3d(pos_real_ctrl, pos_ref_ctrl, ctrl_dir, label_prefix="Control Phase: ")
     _plot_trajectory_2d(pos_real_ctrl, pos_ref_ctrl, ctrl_dir, label_prefix="Control Phase: ")
 
-    print(f"Plots generated in {os.path.join(output_dir, 'plots')}")
+    print(f"Plots generated in {output_dir}")
 
 
 def generate_rocket_creation_plots(rocket, components, output_dir):
@@ -130,7 +139,7 @@ def generate_rocket_creation_plots(rocket, components, output_dir):
     output_dir : str
         Parent output directory (run folder).
     """
-    sim_dir = os.path.join(output_dir, "plots", "simulation")
+    sim_dir = os.path.join(output_dir, "simulation")
     os.makedirs(sim_dir, exist_ok=True)
 
     motor = components.get("motor")
@@ -156,9 +165,11 @@ def _plot_trajectory_3d(pos_real, pos_ref, out_dir, label_prefix=""):
         pos_ref[:, 0], pos_ref[:, 1], pos_ref[:, 2],
         "k--", label="Reference (Local ENU)", alpha=0.7
     )
+    start_label = "Launch" if not label_prefix else "Control Start"
     ax.scatter(pos_real[0, 0], pos_real[0, 1], pos_real[0, 2],
-               color="green", marker="o", s=50, label="Launch")
-    ax.scatter(pos_real[-1, 0], pos_real[-1, 1], pos_real[-1, 2],
+               color="green", marker="o", s=50, label=start_label)
+    idx_apogee = np.argmax(pos_real[:, 2])
+    ax.scatter(pos_real[idx_apogee, 0], pos_real[idx_apogee, 1], pos_real[idx_apogee, 2],
                color="red", marker="x", s=50, label="Apogee")
     ax.set_xlabel("East (m)")
     ax.set_ylabel("North (m)")
@@ -213,7 +224,7 @@ def _plot_position_per_axis(times, pos_real, pos_ref, out_dir):
         axes[i].grid(True)
     axes[2].set_xlabel("Time (s)")
     fig.suptitle("Control Phase: Per-Axis Position Tracking")
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.tight_layout(rect=(0, 0.03, 1, 0.95))
     plt.savefig(os.path.join(out_dir, "position_per_axis.png"))
     plt.close()
 
