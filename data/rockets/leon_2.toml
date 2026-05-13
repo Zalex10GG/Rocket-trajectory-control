@@ -13,9 +13,9 @@ dry_mass_kg = 8.0
 radius_m = 0.05
 length_m = 2.556
 center_of_mass_without_motor_m = 1.29
-inertia_xx_kg_m2 = 0.08
+inertia_xx_kg_m2 = 0.001
 inertia_yy_kg_m2 = 0.08
-inertia_zz_kg_m2 = 0.01
+inertia_zz_kg_m2 = 0.08
 coordinate_system_orientation = "tail_to_nose"
 
 [fins]
@@ -53,9 +53,9 @@ propellant_initial_mass_kg = 1.755
 nozzle_radius_m = 0.004
 dry_mass_kg = 1.586
 center_of_dry_mass_position_m = 0.25
-dry_inertia_xx_kg_m2 = 0.001
-dry_inertia_yy_kg_m2 = 0.01
-dry_inertia_zz_kg_m2 = 0.01
+dry_inertia_xx_kg_m2 = 0.0001
+dry_inertia_yy_kg_m2 = 0.001
+dry_inertia_zz_kg_m2 = 0.001
 nozzle_position_m = 0.0
 # Position of the motor's coordinate-system origin in the rocket frame.
 # In tail_to_nose the tail is at 0, so place the motor origin (nozzle) at the tail.
