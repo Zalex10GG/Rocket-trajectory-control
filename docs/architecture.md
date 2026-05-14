@@ -2,7 +2,7 @@
 
 ## System Overview
 
-The Rocket Control TFG project implements a closed-loop trajectory control system for sounding rockets using rear-fin deflection. The system integrates with RocketPy's 6-DOF flight simulation through its internal `_Controller` infrastructure.
+The Rocket Control TFG project implements a closed-loop trajectory control system for sounding rockets using rear-fin deflection. The system integrates with RocketPy's 6-DOF flight simulation using its internal `_Controller` infrastructure.
 
 ## System Architecture
 
@@ -10,7 +10,7 @@ The Rocket Control TFG project implements a closed-loop trajectory control syste
 graph TD
     subgraph Input
         Config[config.py]
-        TOML[Leon 2 TOML]
+        TOML[Rocket TOML]
         Reference[Trajectory CSV]
     end
 
@@ -56,25 +56,25 @@ graph TD
 ## Data Flow
 
 ### 1. Initialization
-- **Configuration**: Loads execution parameters from `config.py` and rocket geometry/motor data from TOML files.
-- **Environment**: Sets up the RocketPy `Environment` with site-specific atmospheric and gravity data.
-- **Rocket**: Constructs the `Rocket` assembly, attaching a `GenericMotor` and the controlled `GenericSurface`.
+- **Configuration**: `config.py` acts as the single source of truth for paths, launch site, and simulation parameters.
+- **Environment**: Sets up the RocketPy `Environment` using location data from `config.py`.
+- **Rocket**: Constructs the `Rocket` assembly from the TOML file specified in `config.py`.
 
-### 2. Control Loop (Simultaneous with Integration)
+### 2. Control Loop
 During each step of the ODE solver:
-- **State Estimation**: The controller receives the current 13-state vector (position, velocity, quaternion, angular rates) from the solver.
-- **Guidance**: Computes the required acceleration based on the position and velocity error relative to the reference trajectory.
-- **Attitude Control**: Determines the target orientation to achieve the required acceleration and uses a PID loop to compute the virtual control moments.
-- **Actuation**: Maps virtual moments to fin deflections, applying rate and position limits.
-- **Aerodynamics**: The `FinAdapter` translates deflections into lift, side force, and roll moment coefficients, which are then used by the physics engine to calculate the resulting forces.
+- **State Feedback**: The controller receives the 13-state vector (position, velocity, quaternion, angular rates) in the local ENU frame.
+- **Guidance**: Computes commanded acceleration to minimize trajectory error.
+- **Attitude Control**: Determines target orientation and uses a PID loop for virtual moments.
+- **Actuation**: Maps moments to fin deflections via a mixer.
+- **Aerodynamics**: The `FinAdapter` applies these deflections to the aerodynamic model in real-time.
 
-### 3. Output and Analysis
-- **Post-Processing**: Extracts the integrated flight history and computes performance metrics (MAE, RMSE, Saturation).
-- **Visualization**: Generates a suite of plots for trajectory analysis, tracking performance, and control effort.
-- **Artifacts**: Saves all data, metrics, and configuration snapshots to a timestamped result directory.
+### 3. Output
+- **Metrics**: Computes tracking performance (MAE, RMSE) and control effort.
+- **Visualization**: Generates plots for trajectory, attitude, and actuator history.
+- **Results**: Exports all data to a timestamped directory `results/YYYYMMDD_HHMMSS/`.
 
 ## Design Patterns
 
-- **Singleton Pattern**: A module-level controller state ensures consistent data access between the simulation callbacks and the aerodynamic model.
-- **Adapter Pattern**: The `FinAdapter` decouples the control logic from RocketPy's internal coefficient handling.
-- **PD-PID Architecture**: A cascaded loop structure separates trajectory guidance (outer loop) from vehicle stabilization (inner loop).
+- **Single Source of Truth**: All simulation constants and paths reside in `config.py`.
+- **Dynamic Parameters**: Rocket physics (mass, inertia, coefficients) are pulled directly from the TOML at runtime.
+- **Stateful Callback**: A dictionary-based state allows the controller to maintain integrals and history across integrator steps.
