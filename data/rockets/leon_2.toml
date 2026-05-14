@@ -36,8 +36,8 @@ center_of_pressure_m = 0.06680299035398286
 reference_area_m2 = 0.007853981633974483
 # Cuerda Media Aerodinamica (MAC) de las aletas trapezoidal: 2*(root^2 + root*tip + tip^2) / (3*(root + tip))
 reference_length_m = 0.1452
-cN_delta_per_rad = 9.343586365106
-cy_delta_per_rad = 9.343586365106
+cN_delta_per_rad = 9.782358475059
+cy_delta_per_rad = 9.782358475059
 cl_delta_per_rad = 0.5
 k_drag_induced = 0.295907824866
 delta_max_rad = 0.3490658503988659
