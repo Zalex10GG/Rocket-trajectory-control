@@ -16,12 +16,12 @@ The relationship between the absolute position $\vec{p}_{abs}$ and the local pos
 
 $$\vec{p}_{local} = \vec{p}_{abs} - \vec{p}_{launch}$$
 
-## Rocket Body Frame
+## Rocket Body Frame (RocketPy Convention)
 
-The body frame is fixed to the rocket structure:
-- **X-axis ($x_b$)**: Transverse axis.
-- **Y-axis ($y_b$)**: Transverse axis.
-- **Z-axis ($z_b$)**: Longitudinal axis, pointing from **Tail to Nose**.
+The body frame is fixed to the rocket structure. RocketPy uses a right-handed frame with the longitudinal axis along $z$:
+- **X-axis ($x_b$)**: Points **Right** (starboard). This is the **pitch axis**.
+- **Y-axis ($y_b$)**: Points **Down** (belly). This is the **yaw axis**.
+- **Z-axis ($z_b$)**: Longitudinal, points **Tail to Nose** (forward). This is the **roll axis**.
 
 ## Attitude Representation
 
@@ -33,22 +33,42 @@ The error between the desired orientation $q_{ref}$ and the current orientation 
 
 $$q_e = q_{ref} \otimes q^*$$
 
+The error vector components are mapped to control axes as:
+- $q_{e,x}$ → **pitch error** (rotation around $x_b$)
+- $q_{e,y}$ → **yaw error** (rotation around $y_b$)
+- $q_{e,z}$ → **roll error** (rotation around $z_b$)
+
 ### 3. Euler Angles
 For analysis, quaternions are converted to ZYX Euler angles:
-- **Roll ($\phi$)**: Rotation around $x_b$.
-- **Pitch ($\theta$)**: Rotation around $y_b$.
-- **Yaw ($\psi$)**: Rotation around $z_b$.
+- **Roll ($\phi$)**: Rotation around $z_b$ (longitudinal / nose axis).
+- **Pitch ($\theta$)**: Rotation around $x_b$ (right / starboard axis).
+- **Yaw ($\psi$)**: Rotation around $y_b$ (down / belly axis).
 
 ## Control Surface Numbering
 
-Fins are arranged in a cross (+) configuration:
+Fins are arranged in a cruciform (+) configuration. The mixer maps virtual control commands `(pitch, yaw, roll)` to four fin deflections:
 
-| Fin | Position | Control Axis |
+$$\begin{aligned}
+\delta_0 &= pitch + roll \\
+\delta_1 &= yaw + roll \\
+\delta_2 &= -pitch + roll \\
+\delta_3 &= -yaw + roll
+\end{aligned}$$
+
+| Fin index | Position | Control Axis |
 | :--- | :--- | :--- |
-| **Fin 1** | Right ($+x_b$) | Yaw / Roll |
-| **Fin 2** | Top ($+y_b$) | Pitch / Roll |
-| **Fin 3** | Left ($-x_b$) | Yaw / Roll |
-| **Fin 4** | Bottom ($-y_b$) | Pitch / Roll |
+| **0** | Right ($+x_b$) | **Pitch** / Roll |
+| **1** | Down ($+y_b$) | **Yaw** / Roll |
+| **2** | Left ($-x_b$) | **Pitch** / Roll |
+| **3** | Up ($-y_b$) | **Yaw** / Roll |
+
+The aerodynamic force extraction in `FinAdapter` mirrors this mapping:
+
+$$\begin{aligned}
+\Delta_{pitch} &= (\delta_0 - \delta_2) / 2 \\
+\Delta_{yaw}   &= (\delta_1 - \delta_3) / 2 \\
+\Delta_{roll}  &= \text{mean}(\delta_0, \delta_1, \delta_2, \delta_3)
+\end{aligned}$$
 
 ## Summary Table
 
