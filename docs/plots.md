@@ -1,54 +1,32 @@
 # Plots and Analysis
 
-The simulation generates a suite of analysis plots saved to the `results/<run_id>/plots/` directory. These are organized into two subdirectories to distinguish between overall flight characteristics and detailed control performance.
+The simulation generates a suite of analysis plots saved to the `results/YYYYMMDD_HHMMSS/plots/` directory.
 
 ## Directory Structure
 
-```
-results/<run_id>/plots/
-├── simulation/             # Full-flight trajectory and vehicle state
-│   ├── trajectory_3d.png
-│   ├── trajectory_2d_projections.png
-│   ├── rocket.png          # Rocket static properties
-│   ├── static_margin.png   # Stability analysis
-│   └── motor_thrust.png    # Thrust profile
-└── control/                # Active-control-phase detailed analysis
-    ├── position_per_axis.png
-    ├── tracking_errors.png
-    ├── fin_actuation.png
-    ├── attitude_euler.png
-    ├── body_rates.png
-    ├── trajectory_3d.png
-    └── trajectory_2d_projections.png
-```
+- `simulation/`: Overall flight characteristics (full duration).
+- `control/`: Detailed analysis of the active-control phase.
 
 ## Key Plots
 
-### 1. Trajectory 3D
+### 1. Trajectory Tracking
 Visualizes the real flight path against the reference trajectory in local ENU coordinates.
-- **Solid Blue**: Real path.
-- **Dashed Black**: Reference path.
-- **Red X**: Apogee.
+- **3D Trajectory**: Shows the spatial deviation.
+- **Tracking Errors**: Plots the magnitude of the error vector $\|\vec{e}\|_2$ and per-axis errors.
 
-### 2. Tracking Errors
-Analyzes the deviation from the reference during the active-control phase.
-- **3D Norm**: $\| \vec{p}_{ref} - \vec{p} \|_2$
-- **Per-Axis**: $e_x, e_y, e_z$ separately.
+### 2. Control Surface Activity
+- **Fin Deflections**: Shows the history of the 4 control fins in degrees.
+- **Saturation**: Highlights when fins reach the limit scheduled by dynamic pressure.
 
-### 3. Fin Actuation
-Shows the deflection history of the four control fins.
-- **Units**: Degrees.
-- **Limits**: Visualizes saturation at $\pm \delta_{limit}$.
-
-### 4. Attitude and Rates
-- **Euler Angles**: Roll, Pitch, and Yaw in the ZYX convention.
-- **Body Rates**: Angular velocities $\omega_x, \omega_y, \omega_z$ in rad/s.
+### 3. Vehicle State
+- **Attitude (Euler)**: Roll, Pitch, and Yaw angles over time.
+- **Body Rates**: Angular velocities $(\omega_x, \omega_y, \omega_z)$.
+- **Dynamic Pressure ($q$)**: Indicates the aerodynamic authority available for control.
 
 ## Interpretation Guide
 
-| Symptom | Possible Cause |
+| Symptom | Probable Cause |
 | :--- | :--- |
-| **High Tracking Error** | Inadequate guidance gains or aggressive reference. |
-| **Fin Saturation** | Gains too high or low aerodynamic authority. |
-| **Oscillating Body Rates** | Excessive derivative gain ($K_d$) or control delay. |
-| **Large Roll Angle** | Insufficient roll damping ($K_{p,roll}$). |
+| **Steady-state position error** | Low integral gain or constant disturbance (wind). |
+| **High-frequency fin vibration** | Excessive $K_d$ gain or integration noise. |
+| **Divergent trajectory** | Controller delay too high or lack of aerodynamic authority. |

@@ -129,17 +129,10 @@ CSV with columns:
 - `x_enu_m`, `y_enu_m`, `z_enu_m`: Position in local ENU (m)
 - `vx_enu_m_s`, `vy_enu_m_s`, `vz_enu_m_s`: Velocity in local ENU (m/s)
 
-To generate a new trajectory reference:
-
-- Go to the `tools` directory and run `trajectory-creator.py`.
+To generate a new trajectory reference, edit the parameters in `tools/trajectory-creator.py` if needed and run:
 
 ```bash
-cd tools
-```
-- You can change the trajectory parameters in `trajectory-creator.py` before running.
-
-```bash
-uv run trajectory-creator.py
+uv run py tools/trajectory-creator.py
 ```
 > [!NOTE]
 > The reference trajectory is without wind and has no noise, obtaining a ideal trajectory.

@@ -2,61 +2,35 @@
 
 ## Overview
 
-The `rocket_builder.py` module is responsible for assembling the virtual rocket within the RocketPy environment. It integrates the mass properties, motor characteristics, and aerodynamic surfaces (both passive and active).
+Assembles the virtual rocket in RocketPy by integrating mass properties, motor characteristics, and aerodynamic surfaces.
 
-## Rocket Assembly Flow
+## Rocket Assembly
 
-```mermaid
-graph TD
-    TOML[Rocket TOML] --> Parser[initial_data.py]
-    Parser --> Builder[rocket_builder.py]
-    
-    Builder --> Motor[GenericMotor]
-    Builder --> Rocket[Rocket Core]
-    Builder --> Nose[Nose Cone]
-    Builder --> PassiveFins[TrapezoidalFins]
-    Builder --> ActiveFins[GenericSurface + FinAdapter]
-    
-    Rocket --> Assembly[Final RocketPy Rocket Object]
-    Motor --> Assembly
-    Nose --> Assembly
-    PassiveFins --> Assembly
-    ActiveFins --> Assembly
-```
+The builder pulls all physical data from the TOML file:
+1. **Core**: Initializes the `Rocket` with mass and inertia tensors.
+2. **Motor**: Adds a `SolidMotor` using the thrust curve CSV and grain properties.
+3. **Aero Surfaces**: Adds the nose cone and fins.
+4. **Control**: Integrates the `GenericSurface` using a `FinAdapter` to allow real-time control.
 
-## Component Positioning
+## Longitudinal Axis Convention
 
-RocketPy uses a coordinate system along the longitudinal axis. In this project, the orientation is set to **tail-to-nose**:
-- **0**: Rocket tip (nose).
-- **Positive values**: Moving toward the tail.
+RocketPy uses a coordinate system along the longitudinal axis. This project follows the **Tail-to-Nose** convention:
+- **Tail**: Positioned at $0$ (or negative values in some contexts).
+- **Nose**: Positioned at the total length of the rocket.
 
-| Component | Position in TOML | Calculation for RocketPy |
-| :--- | :--- | :--- |
-| **Nose Cone** | `[nosecone].position_m` | `position_m` |
-| **Motor** | `[body].length_m` | `-length_m` (tail) |
-| **Control Fins** | `[fins].position_from_tail_m` | `-position_from_tail_m` |
-| **Passive Fins** | `[fins].position_from_tail_m` | `-position_from_tail_m` |
+## Component Integration
 
-## Key Functions
+### `build_rocket`
+The main entry point for rocket construction. It:
+- Sets the center of mass and inertia tensors.
+- Loads the motor from `config.motor_path`.
+- Configures the `GenericSurface` for active control using coefficients from the `[control_actuation]` TOML section.
 
-### `build_rocket(case_data, config, controller_state)`
-Constructs the full rocket assembly. It also initializes the `FinAdapter` with the shared `controller_state` and registers the aerodynamic coefficients.
+### `FinAdapter`
+Acts as the bridge between the controller and the physics engine. It defines the aerodynamic coefficients as functions of the current fin deflections $\delta$:
 
-### `export_rocket_creation_artifacts(...)`
-Saves a snapshot of the rocket configuration, including the effective parameters used during the simulation, to the results directory. This ensures reproducibility.
+$$C_{N} = C_{N_{\delta}} \cdot \delta_{pitch}$$
+$$C_{y} = C_{y_{\delta}} \cdot \delta_{yaw}$$
+$$C_{D} = k \cdot (C_{N}^2 + C_{y}^2)$$
 
-## Control Surface Integration
-
-The controlled fins are implemented as a `GenericSurface`. Unlike standard fins, their aerodynamic coefficients are dynamic functions:
-
-1.  A `FinAdapter` instance is created.
-2.  The adapter generates a dictionary of `rocketpy.Function` objects.
-3.  These functions are passed to the `GenericSurface` constructor.
-4.  The `GenericSurface` is added to the rocket at the specified aerodynamic center.
-
-## Motor Model
-
-The project uses the `GenericMotor` class, which allows for precise definition of:
-- Thrust curve (from CSV).
-- Mass depletion over time.
-- Moving Center of Gravity (CG) and changing inertia tensors during burn.
+These coefficients are updated at every integrator step by reading the `current_deltas` from the controller state.

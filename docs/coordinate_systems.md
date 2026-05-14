@@ -10,55 +10,45 @@ The ENU frame is a local tangent plane system defined at the launch site:
 - **Origin ($O_{ENU}$)**: Launch pad position.
 - **X-axis ($E$)**: Points East.
 - **Y-axis ($N$)**: Points North.
-- **Z-axis ($U$)**: Points Up (away from Earth's center).
+- **Z-axis ($U$)**: Points Up.
 
-The relationship between the absolute position $\vec{p}_{abs}$ (from RocketPy's geodetic solver) and the local position $\vec{p}_{local}$ is:
+The relationship between the absolute position $\vec{p}_{abs}$ and the local position $\vec{p}_{local}$ is:
 
 $$\vec{p}_{local} = \vec{p}_{abs} - \vec{p}_{launch}$$
 
 ## Rocket Body Frame
 
-The body frame is attached to the rocket:
-- **X-axis ($x_b$)**: Transverse axis (pointing towards Fin 1).
-- **Y-axis ($y_b$)**: Transverse axis (pointing towards Fin 2).
-- **Z-axis ($z_b$)**: Longitudinal axis (pointing from tail to nose).
+The body frame is fixed to the rocket structure:
+- **X-axis ($x_b$)**: Transverse axis.
+- **Y-axis ($y_b$)**: Transverse axis.
+- **Z-axis ($z_b$)**: Longitudinal axis, pointing from **Tail to Nose**.
 
 ## Attitude Representation
 
 ### 1. Quaternions
-
 Attitude is represented by a unit quaternion $q$ in scalar-first format $[w, x, y, z]$, defining the rotation from the ENU frame to the Body frame.
 
-$$q = \begin{bmatrix} \cos(\theta/2) \\ \hat{n} \sin(\theta/2) \end{bmatrix}$$
-
-where $\theta$ is the rotation angle and $\hat{n}$ is the unit rotation axis.
-
 ### 2. Attitude Error
-
-The error between the desired orientation $q_{ref}$ and the current orientation $q$ is:
+The error between the desired orientation $q_{ref}$ and the current orientation $q$ is computed using the quaternion conjugate:
 
 $$q_e = q_{ref} \otimes q^*$$
 
-This error quaternion represents the rotation needed to bring the rocket from its current orientation to the reference.
-
 ### 3. Euler Angles
-
-For visualization and human-readable analysis, quaternions are converted to ZYX Euler angles (Roll $\phi$, Pitch $\theta$, Yaw $\psi$):
-
+For analysis, quaternions are converted to ZYX Euler angles:
 - **Roll ($\phi$)**: Rotation around $x_b$.
 - **Pitch ($\theta$)**: Rotation around $y_b$.
 - **Yaw ($\psi$)**: Rotation around $z_b$.
 
 ## Control Surface Numbering
 
-Fins are arranged in a cross (+) configuration and numbered by their angular position in the body $x_y$ plane:
+Fins are arranged in a cross (+) configuration:
 
-| Fin | Angle | Position |
+| Fin | Position | Control Axis |
 | :--- | :--- | :--- |
-| **Fin 1** | $0^\circ$ | Right ($+x_b$) |
-| **Fin 2** | $90^\circ$ | Top ($+y_b$) |
-| **Fin 3** | $180^\circ$ | Left ($-x_b$) |
-| **Fin 4** | $270^\circ$ | Bottom ($-y_b$) |
+| **Fin 1** | Right ($+x_b$) | Yaw / Roll |
+| **Fin 2** | Top ($+y_b$) | Pitch / Roll |
+| **Fin 3** | Left ($-x_b$) | Yaw / Roll |
+| **Fin 4** | Bottom ($-y_b$) | Pitch / Roll |
 
 ## Summary Table
 
