@@ -110,13 +110,13 @@ class FinAdapter:
         Note: alpha/beta are NOT used (Fallo 6 — explicit exclusion).
         """
         deltas = self.get_current_deltas()
-        delta_pitch = (deltas[1] - deltas[3]) / 2.0
+        delta_pitch = (deltas[0] - deltas[2]) / 2.0
         return self.cN_delta * delta_pitch
 
     def cq_coeff(self, alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate):
         """Side force coefficient (cQ) increment from fin deflection."""
         deltas = self.get_current_deltas()
-        delta_yaw = (deltas[0] - deltas[2]) / 2.0
+        delta_yaw = (deltas[1] - deltas[3]) / 2.0
         return self.cy_delta * delta_yaw
 
     def cd_coeff(self, alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate):

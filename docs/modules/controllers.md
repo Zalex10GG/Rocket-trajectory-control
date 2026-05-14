@@ -55,10 +55,10 @@ $$u_{yaw} = K_{p,att} \epsilon_y + K_{i,att} \int \epsilon_y dt + K_{d,att} \ome
 Maps virtual controls to 4 fins in a cross (+) configuration:
 
 $$\begin{aligned}
-\delta_1 &= u_{yaw} + u_{roll} \\
-\delta_2 &= u_{pitch} + u_{roll} \\
-\delta_3 &= -u_{yaw} + u_{roll} \\
-\delta_4 &= -u_{pitch} + u_{roll}
+\delta_1 &= u_{pitch} + u_{roll} \\
+\delta_2 &= u_{yaw} + u_{roll} \\
+\delta_3 &= -u_{pitch} + u_{roll} \\
+\delta_4 &= -u_{yaw} + u_{roll}
 \end{aligned}$$
 
 ### 5. Actuator Limits and Scheduling

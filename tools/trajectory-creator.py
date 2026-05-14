@@ -20,7 +20,6 @@ from config import load_config
 
 # --- EDITABLE CONSTANTS ---
 OUTPUT_CSV_PATH = "data/trajectory/uncontrolled.csv"
-REFERENCE_HEADER_CSV_PATH = "data/trajectory/vertical.csv"
 PLOTS_DIR_BASE = "data/trajectory/plots"
 INCLINATION_DEG = 90.0
 HEADING_DEG = 0.0
@@ -137,7 +136,8 @@ def main():
     for row in sol:
         data_rows.append([row[0], row[1]-x_off, row[2]-y_off, row[3]-z_off, row[4], row[5], row[6]])
 
-    header = pd.read_csv(REFERENCE_HEADER_CSV_PATH, nrows=0).columns.tolist()
+    header = ["time_s", "x_enu_m", "y_enu_m", "z_enu_m",
+               "vx_enu_m_s", "vy_enu_m_s", "vz_enu_m_s"]
     out_df = pd.DataFrame(data_rows, columns=header)
     
     os.makedirs(os.path.dirname(OUTPUT_CSV_PATH), exist_ok=True)

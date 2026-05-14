@@ -102,7 +102,7 @@ def simulate_controlled_flight(rocket, environment, reference, controller, confi
         state_vec = sol[i, 1:]
         
         # Truthful delta reconstruction: find the latest controller command with t_cmd <= t_sol
-        if len(ctrl_times_sorted) > 0:
+        if len(ctrl_times_sorted) > 0 and t <= ctrl_times_sorted[-1]:
             idx = np.searchsorted(ctrl_times_sorted, t, side='right')
             deltas = ctrl_deltas_sorted[idx - 1] if idx > 0 else np.zeros(4)
         else:

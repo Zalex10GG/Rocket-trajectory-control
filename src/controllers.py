@@ -108,15 +108,15 @@ def fin_controller(t, state, controller, config, reference, environment):
     u_yaw_base = config.Kp_attitude * e_yaw + config.Kd_attitude * w_body[1]
     
     # Mixer & Saturation check
-    def mix(p, y, r): return np.array([y+r, p+r, -y+r, -p+r])
+    def mix(p, y, r): return np.array([p+r, y+r, -p+r, -y+r])
     
     delta_limit = _compute_qbar_authority_limit(q_dynamic, config, controller)
     raw_deltas = mix(u_pitch_base + config.Ki_attitude * (integral[0] + e_pitch*dt),
                      u_yaw_base + config.Ki_attitude * (integral[1] + e_yaw*dt), u_roll)
     
-    if not (np.abs(raw_deltas[1]) > delta_limit or np.abs(raw_deltas[3]) > delta_limit):
-        integral[0] += e_pitch * dt
     if not (np.abs(raw_deltas[0]) > delta_limit or np.abs(raw_deltas[2]) > delta_limit):
+        integral[0] += e_pitch * dt
+    if not (np.abs(raw_deltas[1]) > delta_limit or np.abs(raw_deltas[3]) > delta_limit):
         integral[1] += e_yaw * dt
 
     u_pitch = u_pitch_base + config.Ki_attitude * integral[0]
