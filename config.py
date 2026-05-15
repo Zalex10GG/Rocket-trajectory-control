@@ -26,9 +26,6 @@ class Config:
     # Wind compensation gain
     K_wind_comp: float = 0.5
 
-    # Anti-windup tracking time constant (seconds)
-    anti_windup_T_t: float = 0.5
-
     # Dynamic pressure cutoff threshold (Pa)
     q_min_cutoff_pa: float = 100.0
 
