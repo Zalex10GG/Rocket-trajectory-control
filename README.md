@@ -104,7 +104,7 @@ RocketPy internal integration uses absolute ASL positions, but the controller an
         ├── effective_config.json   # Serializable config
         ├── rocket_definition.toml  # Copy of rocket TOML
         ├── rocket_artifacts.json   # Rocket stats
-        └── plots/                  # 7 analysis plots
+        └── plots/                  # 10 analysis plots (organized in simulation and control subdirectories)
 ```
 
 ## Input Files
@@ -129,13 +129,41 @@ CSV with columns:
 - `x_enu_m`, `y_enu_m`, `z_enu_m`: Position in local ENU (m)
 - `vx_enu_m_s`, `vy_enu_m_s`, `vz_enu_m_s`: Velocity in local ENU (m/s)
 
-To generate a new trajectory reference, edit the parameters in `tools/trajectory-creator.py` if needed and run:
+## Auxiliary Tools
 
-```bash
-uv run py tools/trajectory-creator.py
-```
-> [!NOTE]
-> The reference trajectory is without wind and has no noise, obtaining a ideal trajectory.
+The project includes auxiliary tools in the `tools/` directory to streamline trajectory generation, aerodynamic parameter estimation, and closed-loop controller tuning:
+
+### 1. Reference Trajectory Creator (`tools/trajectory-creator.py`)
+Generates a nominal 3D spatial reference trajectory in the local tangent ENU frame.
+- **Run Command**:
+  ```bash
+  uv run py tools/trajectory-creator.py
+  ```
+- **Notes**: Generates an ideal trajectory under no wind and no noise conditions. The generated file is saved to `data/trajectory/vertical.csv` by default.
+
+### 2. Aerodynamic Coefficient Calculator (`tools/calculate_control_coefficients.py`)
+Estimates lifting and induced drag aerodynamic force derivatives ($C_{N_\delta}$, $C_{y_\delta}$, $k$) based on the rocket body and tail fin geometries defined in the rocket TOML file.
+- **Run Command**:
+  ```bash
+  uv run py tools/calculate_control_coefficients.py
+  ```
+- **Notes**: Uses the subsonic Diederich lift-slope formulation with body-on-fin interference factors ($K_{TB}$). Outputs should be updated in the `[control_actuation]` section of the rocket TOML to align GenericSurface aerodynamics with geometry.
+
+### 3. Ziegler-Nichols Controller Auto-Tuning (`tools/tunning.py`)
+Excites the rocket via open-loop pulse and step fin commands at maximum dynamic pressure (max-Q, $t \approx 2.13$ s) to isolate and identify short-period system dynamics.
+- **Run Command**:
+  ```bash
+  uv run py tools/tunning.py
+  ```
+- **Identified Models**:
+  - **Pitch Loop**: Identifies a second-order underdamped transfer function relating pitch attitude ($\theta$) and rate ($\omega_x$) to fin commands:
+    $$G_{pitch}(s) = \frac{\Theta(s)}{\Delta(s)} = \frac{K_p \omega_n^2}{s^2 + 2\zeta\omega_n s + \omega_n^2}$$
+  - **Roll Loop**: Identifies a first-order rate lag model:
+    $$G_{roll}(s) = \frac{\Omega_z(s)}{\Delta_r(s)} = \frac{K_r}{\tau s + 1}$$
+- **Suggested Gains**: Prints recommended base PID gains derived using Ziegler-Nichols transient response methods.
+- **Diagnostics**: Generates time response fits, Bode plots, and pole-zero maps (saved in `tools/results/`):
+  - `pitch_modes.png`: Precise pole locations on an aspect-ratio-corrected 1:1 map with constant damping lines ($\zeta$) and natural frequency circles ($\omega_n$).
+  - `roll_modes.png`: Features the high-speed boundary layer roll damping pole at $s = -1/\tau \approx -200$ rad/s and the attitude integrator pole at $s = 0$.
 
 ## Output Files
 
@@ -166,14 +194,17 @@ Control performance metrics (control phase only):
 - `max_fin_deflection_deg`, `fin_saturation_ratio`
 
 ### `plots/` Directory
-7 analysis plots (see [docs/plots.md](docs/plots.md) for details):
-1. `trajectory_3d.png` - 3D trajectory comparison (full flight)
-2. `trajectory_2d_projections.png` - XY, XZ, YZ projections (full flight)
-3. `position_per_axis.png` - Per-axis position tracking (control phase)
-4. `tracking_errors.png` - Tracking error norm and per-axis (control phase)
-5. `fin_actuation.png` - Fin deflection history (control phase)
-6. `attitude_euler.png` - Euler angles (control phase)
-7. `body_rates.png` - Body angular rates (control phase)
+10 analysis plots (see [docs/plots.md](docs/plots.md) for details):
+1. `trajectory_3d.png` - 3D trajectory comparison (full flight and control phase)
+2. `trajectory_2d_projections.png` - XY, XZ, and YZ projections (full flight and control phase)
+3. `position_per_axis.png` - Per-axis position tracking with optimized legend placement (control phase)
+4. `tracking_errors.png` - Tracking error norm and per-axis tracking deviations (control phase)
+5. `fin_actuation.png` - Fin deflection history and dynamic deflection limits (control phase)
+6. `attitude_euler.png` - Achievement versus command of roll, pitch, and yaw Euler angles (control phase)
+7. `body_rates.png` - Angular rates ($\omega_x, \omega_y, \omega_z$) for damping and vibration analysis (control phase)
+8. `velocity_per_axis.png` - Linear velocity tracking per axis (full flight and control phase)
+9. `cd_vs_mach.png` - Aerodynamic drag coefficient versus Mach number (full flight)
+10. `gain_evolution.png` - Gain scheduling dynamics showing pressure ($q$), scaling factor ($q_{scale}$), and active scheduled gains ($K_{p,attitude}$, $K_{p,roll}$) (control phase)
 
 ## Control Architecture
 
@@ -212,10 +243,10 @@ Reference Trajectory (ENU)
 
 **Mixing law**:
 ```
-d1 = u_yaw + u_roll
-d2 = u_pitch + u_roll
-d3 = -u_yaw + u_roll
-d4 = -u_pitch + u_roll
+d1 = -u_pitch + u_roll
+d2 = -u_yaw + u_roll
+d3 = u_pitch + u_roll
+d4 = u_yaw + u_roll
 ```
 
 **Rate limiting**: `delta_dot_max_rad_s` from TOML is enforced before saturation.
