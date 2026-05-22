@@ -1,8 +1,19 @@
 """
-Utility functions for quaternion math and control window detection.
+Utility functions for quaternion math, body-rate computation, and control
+window detection.
 
 Conventions:
 - Quaternions are [w, x, y, z] (scalar-first).
+- ENU → Body quaternion: transforms a vector from the ENU frame to the body
+  frame.
+- Body-frame axis mapping (RocketPy):
+  - Body X → pitch axis     (body_rates_rad_s[0])
+  - Body Y → yaw axis       (body_rates_rad_s[1])
+  - Body Z → roll longitudinal axis (body_rates_rad_s[2])
+- ZYX Euler mapping from ``quaternion_to_euler``:
+  - index 0 (φ, x-rotation) → pitch
+  - index 1 (θ, y-rotation) → yaw
+  - index 2 (ψ, z-rotation) → roll_longitudinal
 - Control-active window: samples where the controller diagnostics report
   ``control_active=True``.  This is the authoritative signal, not nonzero
   deltas alone.
@@ -63,8 +74,14 @@ def quaternion_from_vectors(v_from, v_to):
 
 def quaternion_to_euler(q):
     """
-    Converts quaternion [w, x, y, z] to Euler angles (roll, pitch, yaw) in radians.
-    Standard ZYX convention.
+    Converts quaternion [w, x, y, z] to ZYX Euler angles in radians.
+
+    Returns ``(φ, θ, ψ)`` where, for the ENU → Body quaternion used in
+    this project (RocketPy body frame: Z = longitudinal axis):
+
+    - φ (index 0, x-rotation) → **pitch** (nose up/down)
+    - θ (index 1, y-rotation) → **yaw** (right turn)
+    - ψ (index 2, z-rotation) → **roll longitudinal** (around body Z)
     """
     w, x, y, z = q
     # roll (x-axis rotation)
@@ -85,6 +102,91 @@ def quaternion_to_euler(q):
     yaw = np.arctan2(siny_cosp, cosy_cosp)
 
     return roll, pitch, yaw
+
+
+def euler_to_quaternion(roll, pitch, yaw):
+    """ZYX Euler angles (roll, pitch, yaw) -> quaternion [w, x, y, z]."""
+    cr = np.cos(roll * 0.5)
+    sr = np.sin(roll * 0.5)
+    cp = np.cos(pitch * 0.5)
+    sp = np.sin(pitch * 0.5)
+    cy = np.cos(yaw * 0.5)
+    sy = np.sin(yaw * 0.5)
+    return np.array([
+        cr * cp * cy + sr * sp * sy,
+        sr * cp * cy - cr * sp * sy,
+        cr * sp * cy + sr * cp * sy,
+        cr * cp * sy - sr * sp * cy,
+    ])
+
+
+def compute_body_rates_from_quaternions(q_history, times):
+    """
+    Computes body angular rates from a quaternion time history via finite differences.
+
+    Uses the rigid-body kinematic relation for a quaternion **q** representing
+    the ENU → Body rotation:
+
+        ω_body = vec( 2 · q* ⊗ q̇ )
+
+    where ``q̇`` is obtained by central finite differences and ``q*`` is the
+    quaternion conjugate.  Quaternion sign continuity is enforced before
+    differencing (q and −q represent the same rotation).
+
+    Parameters
+    ----------
+    q_history : array-like, shape (N, 4)
+        Quaternion history in [w, x, y, z] order (scalar-first, ENU → Body).
+    times : array-like, shape (N,)
+        Monotonically increasing timestamps in seconds.
+
+    Returns
+    -------
+    np.ndarray, shape (N, 3)
+        Body angular rates **[ω_pitch, ω_yaw, ω_roll_longitudinal]** in rad/s,
+        matching the codebase convention ``body_rates_rad_s[0]=pitch``,
+        ``[1]=yaw``, ``[2]=roll_longitudinal``.
+        NaN for the first and last samples (central difference not available)
+        and wherever the source quaternion is NaN.
+
+    Notes
+    -----
+    - Convention: ``q_dot = 0.5 * q ⊗ [0, ω_body]``, hence
+      ``[0, ω_body] = 2 * conj(q) ⊗ q_dot``.
+    - Sign continuity: before differencing, consecutive quaternions are
+      re-signed so that ``q[i] · q[i-1] >= 0``.
+    - This function is intentionally kept stateless so it can be used for
+      both actual and reference quaternion histories.
+    """
+    n = len(q_history)
+    rates = np.full((n, 3), np.nan)
+    if n < 3:
+        return rates
+
+    q = np.array(q_history, dtype=float)
+
+    # Enforce quaternion sign continuity
+    for i in range(1, n):
+        if np.any(np.isnan(q[i])) or np.any(np.isnan(q[i - 1])):
+            continue
+        if np.dot(q[i], q[i - 1]) < 0:
+            q[i] = -q[i]
+
+    # Central finite difference for q_dot, then compute body rates
+    for i in range(1, n - 1):
+        if (np.any(np.isnan(q[i]))
+                or np.any(np.isnan(q[i - 1]))
+                or np.any(np.isnan(q[i + 1]))):
+            continue
+        dt = times[i + 1] - times[i - 1]
+        if dt > 0:
+            q_dot = (q[i + 1] - q[i - 1]) / dt
+            omega_quat = 2.0 * quaternion_multiply(
+                quaternion_conjugate(q[i]), q_dot
+            )
+            rates[i] = omega_quat[1:4]  # [ωx, ωy, ωz]
+
+    return rates
 
 
 def get_control_window_indices(flight_history, controller_state=None):

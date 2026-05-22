@@ -19,9 +19,9 @@ from src.environment_builder import build_environment
 from config import load_config
 
 # --- EDITABLE CONSTANTS ---
-OUTPUT_CSV_PATH = "data/trajectory/uncontrolled.csv"
+OUTPUT_CSV_PATH = "data/trajectory/85degree.csv"
 PLOTS_DIR_BASE = "data/trajectory/plots"
-INCLINATION_DEG = 90.0
+INCLINATION_DEG = 85.0
 HEADING_DEG = 0.0
 MAX_TIME_S = 300.0
 TIME_OVERSHOOT = False
