@@ -96,6 +96,24 @@ def simulate_controlled_flight(rocket, environment, reference, controller, confi
     else:
         ctrl_times_sorted = np.array([])
         ctrl_deltas_sorted = np.empty((0, 4))
+
+    # Precompute q_ref lookup (controller-requested attitude quaternion)
+    q_ref_dict = controller.get("q_ref_history", {})
+    if q_ref_dict:
+        qref_times_sorted = np.array(sorted(q_ref_dict.keys()))
+        qref_values_sorted = np.array([q_ref_dict[k] for k in qref_times_sorted])
+    else:
+        qref_times_sorted = np.array([])
+        qref_values_sorted = np.empty((0, 4))
+    
+    # Precompute q_dynamic lookup
+    q_dynamic_dict = controller.get("q_dynamic_history", {})
+    if q_dynamic_dict:
+        qdyn_times_sorted = np.array(sorted(q_dynamic_dict.keys()))
+        qdyn_values_sorted = np.array([q_dynamic_dict[k] for k in qdyn_times_sorted])
+    else:
+        qdyn_times_sorted = np.array([])
+        qdyn_values_sorted = np.array([])
     
     history = []
     for i, t in enumerate(sol[:, 0]):
@@ -107,6 +125,20 @@ def simulate_controlled_flight(rocket, environment, reference, controller, confi
             deltas = ctrl_deltas_sorted[idx - 1] if idx > 0 else np.zeros(4)
         else:
             deltas = np.zeros(4)
+        
+        # q_ref reconstruction: find the latest controller q_ref with t_cmd <= t_sol
+        if len(qref_times_sorted) > 0 and t <= qref_times_sorted[-1]:
+            idx_q = np.searchsorted(qref_times_sorted, t, side='right')
+            q_ref = qref_values_sorted[idx_q - 1] if idx_q > 0 else np.full(4, np.nan)
+        else:
+            q_ref = np.full(4, np.nan)
+            
+        # q_dynamic reconstruction: find the latest q_dynamic with t_cmd <= t_sol
+        if len(qdyn_times_sorted) > 0 and t <= qdyn_times_sorted[-1]:
+            idx_qd = np.searchsorted(qdyn_times_sorted, t, side='right')
+            q_dynamic = qdyn_values_sorted[idx_qd - 1] if idx_qd > 0 else 0.0
+        else:
+            q_dynamic = 0.0
             
         history.append({
             'time_s': float(t),
@@ -115,7 +147,10 @@ def simulate_controlled_flight(rocket, environment, reference, controller, confi
             'velocity_enu_m_s': state_vec[3:6],
             'attitude_quaternion': state_vec[6:10],
             'body_rates_rad_s': state_vec[10:13],
-            'deltas': deltas
+            'deltas': deltas,
+            'q_ref': q_ref,  # Controller-requested attitude quaternion [w, x, y, z]
+            'q_dynamic': q_dynamic,
+            'mach': float(flight.mach_number(t)),
         })
     
     return history
@@ -185,7 +220,10 @@ def export_results(flight_history, reference, metrics, config, case_data, rocket
                 'vx': s['velocity_enu_m_s'][0], 'vy': s['velocity_enu_m_s'][1], 'vz': s['velocity_enu_m_s'][2],
                 'q0': s['attitude_quaternion'][0], 'q1': s['attitude_quaternion'][1], 'q2': s['attitude_quaternion'][2], 'q3': s['attitude_quaternion'][3],
                 'p': s['body_rates_rad_s'][0], 'q': s['body_rates_rad_s'][1], 'r': s['body_rates_rad_s'][2],
-                'delta1': s['deltas'][0], 'delta2': s['deltas'][1], 'delta3': s['deltas'][2], 'delta4': s['deltas'][3]
+                'delta1': s['deltas'][0], 'delta2': s['deltas'][1], 'delta3': s['deltas'][2], 'delta4': s['deltas'][3],
+                'qref0': s['q_ref'][0], 'qref1': s['q_ref'][1], 'qref2': s['q_ref'][2], 'qref3': s['q_ref'][3],
+                'q_dynamic_pa': s.get('q_dynamic', 0.0),
+                'mach': s.get('mach', 0.0),
             })
         pd.DataFrame(flat_history).to_csv(os.path.join(run_dir, "flight_history.csv"), index=False)
     

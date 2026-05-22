@@ -1,27 +1,36 @@
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
+
 @dataclass
 class Config:
     """
     Execution parameters and global configuration for the rocket simulation.
     This is the single source of truth for paths, environment, and controller gains.
     """
+
     # Timing
     control_dt_s: float = 0.02  # 50 Hz
-    max_time_s: float = 600.0   # High enough to reach apogee
+    max_time_s: float = 600.0  # High enough to reach apogee
 
     # Guidance PD gains
     Kp_guidance: float = 0.5
     Kd_guidance: float = 1.0
 
-    # Attitude PID gains (Pitch/Yaw)
-    Kp_attitude: float = 0.00139
-    Ki_attitude: float = 0.00234
+    # Attitude PID gains (Pitch/Yaw) — Ziegler-Nichols from tools/tunning.py
+    Kp_attitude: float = 0.001393
+    Ki_attitude: float = 0.002335
     Kd_attitude: float = 0.000208
 
-    # Roll damping gain
-    Kp_roll: float = 0.3
+    # Roll PID gains — Ziegler-Nichols from tools/tunning.py
+    Kp_roll: float = 0.006214
+    Ki_roll: float = 0.155356
+    Kd_roll: float = 0.000062
+
+    # Dynamic pressure gain scheduling parameters
+    enable_gain_scheduling: bool = True
+    qbar_ref_pa: float = 21575.1
+    gain_scheduling_max_scale: float = 100.0
 
     # Wind compensation gain
     K_wind_comp: float = 0.5
@@ -40,8 +49,13 @@ class Config:
     # Control cutoff
     apogee_control_cutoff_delay_s: float = 0.5
 
+    # Guidance acceleration low-pass filter (alpha EMA on accel_cmd_enu).
+    # Range (0, 1): smaller alpha = more smoothing, 1.0 disables filtering.
+    # First active sample initializes to raw value; resets on control cutoff.
+    guidance_accel_filter_alpha: float = 0.3
+
     # Servo command smoothing
-    actuator_command_filter_tau_s: float = 0.08
+    actuator_command_filter_tau_s: float = 0.00
 
     # q-bar scheduled authority guardrail
     qbar_min_authority_pa: float = 500.0
@@ -57,7 +71,7 @@ class Config:
     rocket_path: str = "data/rockets/leon_2.toml"
     motor_path: str = "data/motors/cesaroni_pro75_3g_3727l1050.csv"
     drag_path: str = "data/drag/leon_2_drag.csv"
-    reference_path: str = "data/trajectory/vertical.csv"
+    reference_path: str = "data/trajectory/85degree.csv"
     results_dir: str = "results"
 
     # Launch site / Rail
@@ -66,17 +80,20 @@ class Config:
     elevation_asl_m: float = 1000.0
     rail_length_m: float = 6.0
     heading_deg: float = 0.0
-    inclination_deg: float = 89.0
+    inclination_deg: float = 87.0
 
     # Environment
     launch_date: Tuple[int, int, int, int] = (2025, 5, 7, 12)
-    atmosphere_type: str = "auto"  # "auto" | "Reanalysis" | "Forecast" | "standard_atmosphere"
+    atmosphere_type: str = (
+        "auto"  # "auto" | "Reanalysis" | "Forecast" | "standard_atmosphere"
+    )
     atmosphere_file: Optional[str] = None
 
     # Flags
     use_wind: bool = False
     save_results: bool = True
     show_plots: bool = False
+
 
 def load_config() -> Config:
     """Returns a new instance of the Config dataclass."""
