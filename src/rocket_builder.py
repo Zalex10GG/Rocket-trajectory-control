@@ -112,6 +112,9 @@ def build_rocket(case_data, config, controller_state):
     # Populate controller limits from TOML
     controller_state["delta_max_rad"] = actuation["delta_max_rad"]
     controller_state["delta_dot_max_rad_s"] = actuation["delta_dot_max_rad_s"]
+    controller_state["cN_delta"] = actuation.get("cN_delta_per_rad", 0.0)
+    controller_state["cy_delta"] = actuation.get("cy_delta_per_rad", 0.0)
+    controller_state["k_drag_induced"] = actuation.get("k_drag_induced", 0.0)
 
     # Derive min activation height
     config.control_start_min_height_above_launch_m = config.rail_length_m + config.safety_margin_m

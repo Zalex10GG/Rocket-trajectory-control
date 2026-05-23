@@ -116,7 +116,8 @@ def generate_all_plots(flight_history, reference, metrics, config, output_dir=No
 
     _plot_trajectory_3d(pos_real_local, pos_ref_local_full, sim_dir, keep_open=show_plots)
     _plot_trajectory_2d(pos_real_local, pos_ref_local_full, sim_dir, keep_open=show_plots)
-    _plot_velocity_per_axis(times, vel_real_local, vel_ref_local_matched, sim_dir, label_prefix="Full Flight: ", keep_open=show_plots)
+    _plot_velocity_per_axis(times, vel_real_local, vel_ref_local_matched, sim_dir, label_prefix="Full Flight: ", has_ref=False, keep_open=show_plots)
+    _plot_attitude_euler(times, flight_history, sim_dir, label_prefix="Full Flight: ", keep_open=show_plots)
     
     # Drag Coefficient Cd vs Mach plot (capped at max flight Mach)
     machs = np.array([s.get("mach", 0.0) for s in flight_history])
@@ -129,12 +130,13 @@ def generate_all_plots(flight_history, reference, metrics, config, output_dir=No
     _plot_position_per_axis(ctrl_times, pos_real_ctrl, pos_ref_ctrl, ctrl_dir, keep_open=show_plots)
     _plot_tracking_errors(ctrl_times, pos_real_ctrl, pos_ref_ctrl, ctrl_dir, keep_open=show_plots)
     _plot_fin_actuation(ctrl_times, ctrl_history, ctrl_dir, config=config, controller_state=controller_state, keep_open=show_plots)
-    _plot_attitude_euler(ctrl_times, ctrl_history, ctrl_dir, keep_open=show_plots)
+    _plot_attitude_euler(ctrl_times, ctrl_history, ctrl_dir, label_prefix="Control Phase: ", keep_open=show_plots)
     _plot_body_rates(ctrl_times, ctrl_history, ctrl_dir, keep_open=show_plots)
-    _plot_velocity_per_axis(ctrl_times, vel_real_ctrl, vel_ref_ctrl, ctrl_dir, label_prefix="Control Phase: ", keep_open=show_plots)
+    _plot_velocity_per_axis(ctrl_times, vel_real_ctrl, vel_ref_ctrl, ctrl_dir, label_prefix="Control Phase: ", has_ref=True, keep_open=show_plots)
     _plot_trajectory_3d(pos_real_ctrl, pos_ref_ctrl, ctrl_dir, label_prefix="Control Phase: ", keep_open=show_plots)
     _plot_trajectory_2d(pos_real_ctrl, pos_ref_ctrl, ctrl_dir, label_prefix="Control Phase: ", keep_open=show_plots)
     _plot_gain_evolution(ctrl_times, ctrl_history, ctrl_dir, config=config, keep_open=show_plots)
+    _plot_guidance_sources(controller_state, ctrl_dir, keep_open=show_plots)
 
     print(f"Plots generated in {output_dir}")
     if show_plots:
@@ -327,35 +329,48 @@ def _plot_fin_actuation(times, ctrl_history, out_dir, config, controller_state=N
         plt.close(fig)
 
 
-def _plot_attitude_euler(times, ctrl_history, out_dir, keep_open=False):
+def _plot_attitude_euler(times, ctrl_history, out_dir, label_prefix="Control Phase: ", keep_open=False):
     fig = plt.figure(figsize=(10, 6))
-    eulers = np.array([utils.quaternion_to_euler(s["attitude_quaternion"]) for s in ctrl_history]) * 180 / np.pi
+    
+    # Unpack obtained attitude to aerospace angles (Pitch, Yaw, Roll)
+    eulers = []
+    for s in ctrl_history:
+        q = s["attitude_quaternion"]
+        r, p, y = utils.rocketpy_quaternion_to_aerospace_euler(q, maps_body_to_enu=True)
+        eulers.append((p, y, r))
+    eulers = np.array(eulers) * 180 / np.pi
     
     # Extract reference Euler angles from s["q_ref"]
     eulers_ref = []
+    has_ref = False
     for s in ctrl_history:
         q_ref = s.get("q_ref")
         if q_ref is not None and not np.any(np.isnan(q_ref)):
-            eulers_ref.append(utils.quaternion_to_euler(q_ref))
+            r_ref, p_ref, y_ref = utils.rocketpy_quaternion_to_aerospace_euler(q_ref, maps_body_to_enu=False)
+            eulers_ref.append((p_ref, y_ref, r_ref))
+            has_ref = True
         else:
             eulers_ref.append((np.nan, np.nan, np.nan))
     eulers_ref = np.array(eulers_ref) * 180 / np.pi
 
-    # Plot Pitch (phi) - index 0 (X-rotation)
+    # Plot Pitch (index 0)
     plt.plot(times, eulers[:, 0], label="Pitch Obtained", color="C1", linewidth=1.5)
-    plt.plot(times, eulers_ref[:, 0], "--", label="Pitch Required", color="C1", alpha=0.7, linewidth=1.5)
+    if has_ref:
+        plt.plot(times, eulers_ref[:, 0], "--", label="Pitch Required", color="C1", alpha=0.7, linewidth=1.5)
     
-    # Plot Yaw (theta) - index 1 (Y-rotation)
+    # Plot Yaw (index 1)
     plt.plot(times, eulers[:, 1], label="Yaw Obtained", color="C2", linewidth=1.5)
-    plt.plot(times, eulers_ref[:, 1], "--", label="Yaw Required", color="C2", alpha=0.7, linewidth=1.5)
+    if has_ref:
+        plt.plot(times, eulers_ref[:, 1], "--", label="Yaw Required", color="C2", alpha=0.7, linewidth=1.5)
     
-    # Plot Roll (psi) - index 2 (Z-rotation)
+    # Plot Roll (index 2)
     plt.plot(times, eulers[:, 2], label="Roll Obtained", color="C0", linewidth=1.5)
-    plt.plot(times, eulers_ref[:, 2], "--", label="Roll Required", color="C0", alpha=0.7, linewidth=1.5)
+    if has_ref:
+        plt.plot(times, eulers_ref[:, 2], "--", label="Roll Required", color="C0", alpha=0.7, linewidth=1.5)
     
     plt.xlabel("Time (s)")
     plt.ylabel("Angle (deg)")
-    plt.title("Control Phase: Rocket Attitude Tracking (Euler ZYX)")
+    plt.title(f"{label_prefix}Rocket Attitude Tracking (Aerospace Euler)")
     plt.legend()
     plt.grid(True)
     plt.savefig(os.path.join(out_dir, "attitude_euler.png"))
@@ -379,13 +394,14 @@ def _plot_body_rates(times, ctrl_history, out_dir, keep_open=False):
         plt.close(fig)
 
 
-def _plot_velocity_per_axis(times, vel_real, vel_ref, out_dir, label_prefix="", keep_open=False):
+def _plot_velocity_per_axis(times, vel_real, vel_ref, out_dir, label_prefix="", has_ref=True, keep_open=False):
     fig, axes = plt.subplots(3, 1, figsize=(10, 10), sharex=True)
     labels = ["X (East)", "Y (North)", "Z (Up)"]
     for i in range(3):
         color_map = {0: "C0", 1: "C1", 2: "C2"}
         axes[i].plot(times, vel_real[:, i], label=f"Real {labels[i]}", color=color_map[i], linewidth=1.5)
-        axes[i].plot(times, vel_ref[:, i], "r--", label=f"Ref {labels[i]}", alpha=0.7, linewidth=1.5)
+        if has_ref and vel_ref is not None:
+            axes[i].plot(times, vel_ref[:, i], "r--", label=f"Ref {labels[i]}", alpha=0.7, linewidth=1.5)
         axes[i].set_ylabel("Velocity (m/s)")
         if i == 0:
             if "Control" in label_prefix:
@@ -490,5 +506,72 @@ def _plot_gain_evolution(times, ctrl_history, out_dir, config, keep_open=False):
     
     plt.tight_layout()
     plt.savefig(os.path.join(out_dir, "gain_evolution.png"))
+    if not keep_open:
+        plt.close(fig)
+
+
+def _plot_guidance_sources(controller_state, out_dir, keep_open=False):
+    """
+    Plots comparing reference flight path angle, commanded attitude pitch (from q_ref),
+    and actual attitude pitch over time.
+    """
+    diag = controller_state.get("_diagnostics", []) if controller_state else []
+    if not diag:
+        return
+    
+    # Filter for active-control steps
+    active_diag = [d for d in diag if d.get("control_active", False)]
+    if not active_diag:
+        return
+        
+    times = [d["time_s"] for d in active_diag]
+    ref_fpa = [d.get("ref_flight_path_angle_deg", 0.0) for d in active_diag]
+    ref_cmd_pitch = [d.get("ref_cmd_pitch_deg", 0.0) for d in active_diag]
+    actual_pitch = [d.get("actual_pitch_deg", 0.0) for d in active_diag]
+    alpha_cmd = [d.get("alpha_cmd_deg", 0.0) for d in active_diag]
+    
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 8), sharex=True)
+    
+    # Pitch angles comparison
+    ax1.plot(
+        times,
+        actual_pitch,
+        color="tab:blue",
+        linestyle="-",
+        label="Actual Rocket Pitch",
+        linewidth=1.8,
+    )
+    ax1.plot(
+        times,
+        ref_fpa,
+        color="tab:green",
+        linestyle="--",
+        label="Reference Flight Path Angle",
+        linewidth=1.8,
+    )
+    ax1.plot(
+        times,
+        ref_cmd_pitch,
+        color="tab:red",
+        linestyle="-.",
+        label="Commanded Nose Pitch (q_ref)",
+        linewidth=1.8,
+    )
+    ax1.set_ylabel("Angle (deg)")
+    ax1.set_title("Guidance and Attitude Pitch Tracking Comparison")
+    ax1.grid(True)
+    ax1.legend(loc="best")
+    
+    # Commanded Angle of Attack (AoA)
+    ax2.plot(times, alpha_cmd, 'purple', label="Commanded Angle of Attack (AoA)", linewidth=1.5)
+    ax2.set_xlabel("Time (s)")
+    ax2.set_ylabel("Commanded AoA (deg)")
+    ax2.set_title("Commanded Angle of Attack")
+    ax2.grid(True)
+    ax2.legend(loc="best")
+    
+    plt.tight_layout()
+    os.makedirs(out_dir, exist_ok=True)
+    plt.savefig(os.path.join(out_dir, "guidance_sources.png"))
     if not keep_open:
         plt.close(fig)

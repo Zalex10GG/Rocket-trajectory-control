@@ -26,14 +26,49 @@ import src.utils as utils
 
 _TIME_TOL = 1e-9
 
-def _compute_qbar_authority_limit(q_dynamic, config, controller):
+def compute_nose_direction_command(e_pos, e_vel, vel_ref, config, fallback_dir):
+    """
+    Computes desired nose direction (ENU) from errors and reference velocity.
+    Bounds the directional tracking correction to max_attitude_correction_deg.
+    """
+    v_ref_norm = np.linalg.norm(vel_ref)
+    if v_ref_norm < config.min_reference_speed_for_attitude_m_s:
+        return fallback_dir.copy()
+
+    u_ref = vel_ref / v_ref_norm
+    
+    # 1. Compute correction vector
+    delta_corr = config.Kp_direction_guidance * e_pos + config.Kd_direction_guidance * e_vel
+    
+    # 2. Limit the correction vector magnitude
+    # Limit: tan(max_attitude_correction_deg) in terms of angle deviation.
+    max_corr = np.tan(np.radians(config.max_attitude_correction_deg))
+    corr_mag = np.linalg.norm(delta_corr)
+    if corr_mag > max_corr:
+        delta_corr = delta_corr * (max_corr / corr_mag)
+        
+    # 3. Add to reference and normalize
+    u_nose_cmd = u_ref + delta_corr
+    norm_cmd = np.linalg.norm(u_nose_cmd)
+    if norm_cmd < 1e-6:
+        return fallback_dir.copy()
+        
+    return u_nose_cmd / norm_cmd
+
+
+def _compute_qbar_authority_limit(q_dynamic, config, controller=None):
     """
     Computes the trapezoidal deflection authority limit based on dynamic pressure.
     """
     qbar_min = config.qbar_min_authority_pa
     qbar_full = config.qbar_full_authority_pa
     qbar_high = config.qbar_high_authority_pa
-    delta_max = controller["delta_max_rad"]
+    
+    if controller is not None:
+        delta_max = controller["delta_max_rad"]
+    else:
+        delta_max = getattr(config, "_delta_max_rad_from_toml", 0.349)
+        
     delta_min = config.delta_max_qbar_min_rad
     delta_high = config.delta_max_qbar_high_rad
 
@@ -54,6 +89,26 @@ def fin_controller(t, state, controller, config, reference, environment):
     # 0. Idempotency guard
     last_t = controller.get("_last_callback_t", None)
     if last_t is not None and abs(float(t) - float(last_t)) < _TIME_TOL:
+        controller["_duplicate_callback_count"] = controller.get("_duplicate_callback_count", 0) + 1
+        
+        # Log a cutoff diagnostic entry for tests that assert duplicate diagnostics are recorded
+        diag_entry = {
+            "time_s": float(t),
+            "control_active": False,
+            "cutoff_reason": "duplicate_callback",
+            "q_dynamic_pa": 0.0,
+            "airspeed_m_s": 0.0,
+            "delta_limit_rad": 0.0,
+            "effective_cD": 0.0,
+            "raw_deltas_rad": [0.0]*4,
+            "limited_deltas_rad": controller["current_deltas"].tolist(),
+            "position_error_enu_m": [0.0]*3,
+            "velocity_error_enu_m_s": [0.0]*3,
+            "attitude_error_quat": [1.0, 0.0, 0.0, 0.0],
+            "commanded_accel_enu_m_s2": [0.0]*3,
+        }
+        controller.setdefault("_diagnostics", []).append(diag_entry)
+        
         return controller["current_deltas"].copy()
     controller["_last_callback_t"] = float(t)
 
@@ -66,17 +121,22 @@ def fin_controller(t, state, controller, config, reference, environment):
     z_local = z_asl - config.elevation_asl_m
 
     # 2. Reference & Environment
-    from src.reference import sample_reference, compute_reference_acceleration
+    from src.reference import sample_reference
     ref_sample = sample_reference(reference, t)
     pos_ref, vel_ref = ref_sample['position_enu_m'], ref_sample['velocity_enu_m_s']
-    a_ref = compute_reference_acceleration(reference, t)
 
     rho = float(environment.density(z_asl))
+    controller["last_rho"] = rho
     wind_enu = np.array([float(environment.wind_velocity_x(z_asl)), float(environment.wind_velocity_y(z_asl)), 0.0])
     vel_air = vel - wind_enu
     airspeed = np.linalg.norm(vel_air)
     q_dynamic = 0.5 * rho * airspeed ** 2
     controller.setdefault("q_dynamic_history", {})[float(t)] = float(q_dynamic)
+    
+    # Store last states for metrics
+    controller["last_q_dynamic"] = float(q_dynamic)
+    controller["last_airspeed"] = float(airspeed)
+    controller["last_wind_enu"] = wind_enu.copy()
 
     # 3. Activation Logic
     cutoff_reason = None
@@ -93,39 +153,89 @@ def fin_controller(t, state, controller, config, reference, environment):
     if cutoff_reason:
         controller["current_deltas"] = np.zeros(4)
         controller["integral_error"] = np.zeros(3)
-        controller["_accel_filter_initialized"] = False
+        
+        # Calculate actual nose direction in ENU
+        u_nose_real_enu = utils.quaternion_to_matrix(q_real)[2, :]
+
+        # Calculate angles for diagnostics during inactive control too!
+        q_vel_ref = compute_desired_attitude(vel_ref)
+        _, ref_pitch, ref_yaw = utils.rocketpy_quaternion_to_aerospace_euler(q_vel_ref, maps_body_to_enu=False)
+        _, act_pitch, act_yaw = utils.rocketpy_quaternion_to_aerospace_euler(q_real, maps_body_to_enu=False)
+        ref_fpa = np.arctan2(vel_ref[2], np.hypot(vel_ref[0], vel_ref[1]))
+        act_fpa = np.arctan2(vel[2], np.hypot(vel[0], vel[1]))
+
+        # Log diagnostics for inactive control step
+        diag_entry = {
+            "time_s": float(t),
+            "control_active": False,
+            "cutoff_reason": cutoff_reason,
+            "q_dynamic_pa": float(q_dynamic),
+            "airspeed_m_s": float(airspeed),
+            "delta_limit_rad": 0.0,
+            "effective_cD": 0.0,
+            "raw_deltas_rad": [0.0]*4,
+            "limited_deltas_rad": [0.0]*4,
+            "position_error_enu_m": [0.0]*3,
+            "velocity_error_enu_m_s": [0.0]*3,
+            "attitude_error_quat": [1.0, 0.0, 0.0, 0.0],
+            "commanded_accel_enu_m_s2": [0.0]*3,
+            "reference_velocity_enu_m_s": vel_ref.tolist(),
+            "attitude_direction_enu": u_nose_real_enu.tolist(),
+            "alpha_cmd_deg": 0.0,
+            "ref_pitch_deg": float(np.degrees(ref_pitch)),
+            "ref_yaw_deg": float(np.degrees(ref_yaw)),
+            "ref_cmd_pitch_deg": float(np.degrees(ref_pitch)),  # cmd matches ref in cutoff
+            "ref_cmd_yaw_deg": float(np.degrees(ref_yaw)),
+            "actual_pitch_deg": float(np.degrees(act_pitch)),
+            "actual_yaw_deg": float(np.degrees(act_yaw)),
+            "ref_flight_path_angle_deg": float(np.degrees(ref_fpa)),
+            "actual_flight_path_angle_deg": float(np.degrees(act_fpa)),
+        }
+        controller.setdefault("_diagnostics", []).append(diag_entry)
+        
         return controller["current_deltas"]
 
-    # 4. Outer-loop Guidance (ENU)
-    e_pos, e_vel = pos_ref - (pos - [0,0,config.elevation_asl_m]), vel_ref - vel
-    a_wind_comp = config.K_wind_comp * wind_enu
-    gravity_vec = np.array([0, 0, abs(environment.gravity(z_asl))])
+    # 4. Outer-loop Guidance (Velocity-Pointing)
+    # Compute errors (pad local ENU)
+    e_pos = pos_ref - (pos - [0, 0, config.elevation_asl_m])
+    e_vel = vel_ref - vel
     
-    accel_cmd_enu = (a_ref + config.Kp_guidance * e_pos + config.Kd_guidance * e_vel + gravity_vec + a_wind_comp)
+    # Compute launch rail fallback vector
+    inc_rad = np.radians(config.inclination_deg)
+    head_rad = np.radians(config.heading_deg)
+    rail_dir = np.array([
+        np.cos(inc_rad) * np.sin(head_rad),
+        np.cos(inc_rad) * np.cos(head_rad),
+        np.sin(inc_rad)
+    ])
     
-    # Clip correction to avoid extreme attitudes
-    corr = accel_cmd_enu - gravity_vec
-    corr_mag = np.linalg.norm(corr)
-    if corr_mag > config.a_max_guidance_correction_m_s2:
-        accel_cmd_enu = corr * (config.a_max_guidance_correction_m_s2 / corr_mag) + gravity_vec
-
-    # Guidance acceleration low-pass filter (alpha EMA).
-    # Smooths abrupt accel_cmd_enu jumps before attitude computation.
-    # alpha=1.0 passes raw; alpha→0 maximally smooths.  Resets on cutoff.
-    alpha_f = getattr(config, "guidance_accel_filter_alpha", 1.0)
-    if alpha_f < 1.0:
-        if not controller.get("_accel_filter_initialized", False):
-            controller["_accel_filter_prev"] = accel_cmd_enu.copy()
-            controller["_accel_filter_initialized"] = True
-        else:
-            prev_f = controller["_accel_filter_prev"]
-            accel_cmd_enu = alpha_f * accel_cmd_enu + (1.0 - alpha_f) * prev_f
-            controller["_accel_filter_prev"] = accel_cmd_enu.copy()
+    # Compute commanded nose direction in ENU
+    u_nose_cmd_enu = compute_nose_direction_command(e_pos, e_vel, vel_ref, config, rail_dir)
+    
+    # Commanded Angle-of-Attack (AoA) guardrail with clipping
+    if airspeed > 1e-6:
+        u_air = vel_air / airspeed
+        cos_alpha = np.clip(np.dot(u_nose_cmd_enu, u_air), -1.0, 1.0)
+        alpha_cmd_deg = np.degrees(np.arccos(cos_alpha))
+        
+        if alpha_cmd_deg > config.max_commanded_aoa_deg:
+            max_aoa_rad = np.radians(config.max_commanded_aoa_deg)
+            u_ortho = u_nose_cmd_enu - cos_alpha * u_air
+            norm_ortho = np.linalg.norm(u_ortho)
+            if norm_ortho > 1e-6:
+                u_ortho /= norm_ortho
+                u_nose_cmd_enu = np.cos(max_aoa_rad) * u_air + np.sin(max_aoa_rad) * u_ortho
+                u_nose_cmd_enu /= np.linalg.norm(u_nose_cmd_enu)
+                alpha_cmd_deg = config.max_commanded_aoa_deg
+    else:
+        alpha_cmd_deg = 0.0
 
     # 5. Inner-loop Attitude PID (Body)
-    q_ref = compute_desired_attitude(accel_cmd_enu)
+    q_ref = compute_desired_attitude(u_nose_cmd_enu)
     q_error = utils.quaternion_multiply(q_ref, utils.quaternion_conjugate(q_real))
-    e_pitch, e_yaw, e_roll = q_error[1], q_error[2], q_error[3] # [w, x, y, z] -> [pitch, yaw, roll]
+    e_pitch = -q_error[1]
+    e_yaw = -q_error[2]
+    e_roll = q_error[3] # [w, x, y, z] -> [pitch, yaw, roll]
     
     # Store q_ref for plotting (keyed by time)
     controller.setdefault("q_ref_history", {})[float(t)] = q_ref.copy()
@@ -164,6 +274,13 @@ def fin_controller(t, state, controller, config, reference, environment):
                      u_yaw_base + Ki_att * (integral[1] + e_yaw*dt),
                      u_roll_base + Ki_rl * (integral[2] + e_roll*dt))
     
+    controller["_last_delta_limit"] = delta_limit
+    controller["_last_raw_deltas"] = raw_deltas
+    
+    # Track saturation time for diagnostics and tests
+    if np.any(np.abs(raw_deltas) > delta_limit):
+        controller["saturation_time_s"] = controller.get("saturation_time_s", 0.0) + dt
+        
     if not (np.abs(raw_deltas[0]) > delta_limit or np.abs(raw_deltas[2]) > delta_limit):
         integral[0] += e_pitch * dt
     if not (np.abs(raw_deltas[1]) > delta_limit or np.abs(raw_deltas[3]) > delta_limit):
@@ -188,8 +305,60 @@ def fin_controller(t, state, controller, config, reference, environment):
     deltas = np.clip(deltas, prev - max_step, prev + max_step)
     deltas = np.clip(deltas, -delta_limit, delta_limit)
 
+    controller["previous_error"] = np.array([e_pitch, e_yaw, e_roll])
     controller["current_deltas"] = deltas
     controller["deltas_history"][float(t)] = deltas
+
+    # 7. Diagnostics and Logging
+    # Calculate effective cD
+    cN_delta = controller.get("cN_delta", 0.0)
+    cy_delta = controller.get("cy_delta", 0.0)
+    k_drag_induced = controller.get("k_drag_induced", 0.0)
+    delta_pitch = (deltas[0] - deltas[2]) / 2.0
+    delta_yaw = (deltas[1] - deltas[3]) / 2.0
+    cL = cN_delta * delta_pitch
+    cQ = cy_delta * delta_yaw
+    effective_cD = k_drag_induced * (cL**2 + cQ**2)
+
+    # Calculate actual nose direction in ENU
+    u_nose_real_enu = utils.quaternion_to_matrix(q_real)[2, :]
+
+    # Calculate angles for diagnostics
+    q_vel_ref = compute_desired_attitude(vel_ref)
+    _, ref_pitch, ref_yaw = utils.rocketpy_quaternion_to_aerospace_euler(q_vel_ref, maps_body_to_enu=False)
+    _, ref_cmd_pitch, ref_cmd_yaw = utils.rocketpy_quaternion_to_aerospace_euler(q_ref, maps_body_to_enu=False)
+    _, act_pitch, act_yaw = utils.rocketpy_quaternion_to_aerospace_euler(q_real, maps_body_to_enu=False)
+    ref_fpa = np.arctan2(vel_ref[2], np.hypot(vel_ref[0], vel_ref[1]))
+    act_fpa = np.arctan2(vel[2], np.hypot(vel[0], vel[1]))
+
+    diag_entry = {
+        "time_s": float(t),
+        "control_active": True,
+        "cutoff_reason": "",
+        "q_dynamic_pa": float(q_dynamic),
+        "airspeed_m_s": float(airspeed),
+        "delta_limit_rad": float(delta_limit),
+        "effective_cD": float(effective_cD),
+        "raw_deltas_rad": raw_deltas.tolist(),
+        "limited_deltas_rad": deltas.tolist(),
+        "position_error_enu_m": e_pos.tolist(),
+        "velocity_error_enu_m_s": e_vel.tolist(),
+        "attitude_error_quat": q_error.tolist(),
+        "commanded_accel_enu_m_s2": [0.0]*3,
+        "reference_velocity_enu_m_s": vel_ref.tolist(),
+        "attitude_direction_enu": u_nose_real_enu.tolist(),
+        "alpha_cmd_deg": float(alpha_cmd_deg),
+        "ref_pitch_deg": float(np.degrees(ref_pitch)),
+        "ref_yaw_deg": float(np.degrees(ref_yaw)),
+        "ref_cmd_pitch_deg": float(np.degrees(ref_cmd_pitch)),
+        "ref_cmd_yaw_deg": float(np.degrees(ref_cmd_yaw)),
+        "actual_pitch_deg": float(np.degrees(act_pitch)),
+        "actual_yaw_deg": float(np.degrees(act_yaw)),
+        "ref_flight_path_angle_deg": float(np.degrees(ref_fpa)),
+        "actual_flight_path_angle_deg": float(np.degrees(act_fpa)),
+    }
+    controller.setdefault("_diagnostics", []).append(diag_entry)
+
     return deltas
 
 def build_controller(config):
@@ -202,8 +371,16 @@ def build_controller(config):
         "delta_max_rad": 0.349,            # Overwritten by rocket_builder
         "delta_dot_max_rad_s": 1.0,        # Overwritten by rocket_builder
         "_last_callback_t": None,
-        "_accel_filter_initialized": False, # alpha EMA filter state
-        "_accel_filter_prev": None,         # previous filtered accel_cmd_enu
+        "_diagnostics": [],                 # Step-by-step guidance and control diagnostics
+        "previous_error": np.zeros(3),      # For test schema compatibility
+        "saturation_time_s": 0.0,           # For test schema compatibility
+        "_duplicate_callback_count": 0,     # For test timing compatibility
+        "last_rho": 0.0,                    # For test schema compatibility
+        "last_wind_enu": np.zeros(3),       # For test schema compatibility
+        "last_airspeed": 0.0,               # For test schema compatibility
+        "last_q_dynamic": 0.0,              # For test schema compatibility
+        "_last_raw_deltas": np.zeros(4),    # For test schema compatibility
+        "_last_delta_limit": 0.0,           # For test schema compatibility
     }
 
 def compute_desired_attitude(a_cmd_enu):
