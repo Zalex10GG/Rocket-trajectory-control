@@ -16,8 +16,10 @@ uv run py tools/trajectory-creator.py
 
 1.  **Passive Simulation**: Loads the rocket and motor data to run a standard RocketPy flight without control logic.
 2.  **Coordinate Transformation**: Converts the geodetic trajectory to a local **East-North-Up (ENU)** frame centered at the launch pad:
+
     $$\vec{p}_{ENU} = \vec{p}_{abs} - \vec{p}_{launch}$$
-3.  **Reference Export**: Saves the time-series data (Position and Velocity) in a format compatible with the main simulation's reference loader.
+    
+4.  **Reference Export**: Saves the time-series data (Position and Velocity) in a format compatible with the main simulation's reference loader.
 
 ## Outputs
 
