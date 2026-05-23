@@ -14,6 +14,10 @@ Conventions:
   - index 0 (φ, x-rotation) → pitch
   - index 1 (θ, y-rotation) → yaw
   - index 2 (ψ, z-rotation) → roll_longitudinal
+- Aerospace Euler mapping from ``rocketpy_quaternion_to_aerospace_euler``:
+  - roll: rotation about xb = RocketPy z (longitudinal, nose-forward)
+  - pitch: elevation of xb above the local ENU horizontal plane
+  - yaw: heading of xb, 0 deg North and positive toward East
 - Control-active window: samples where the controller diagnostics report
   ``control_active=True``.  This is the authoritative signal, not nonzero
   deltas alone.
@@ -100,6 +104,76 @@ def quaternion_to_euler(q):
     siny_cosp = 2 * (w * z + x * y)
     cosy_cosp = 1 - 2 * (y * y + z * z)
     yaw = np.arctan2(siny_cosp, cosy_cosp)
+
+    return roll, pitch, yaw
+
+
+def quaternion_to_matrix(q):
+    """Returns the rotation matrix represented by quaternion [w, x, y, z]."""
+    w, x, y, z = q
+    return np.array([
+        [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
+        [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
+        [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
+    ])
+
+
+def rocketpy_quaternion_to_aerospace_euler(q, maps_body_to_enu=True):
+    """
+    Converts a RocketPy attitude quaternion to aerospace roll, pitch, yaw.
+
+    RocketPy's body z-axis is longitudinal and points toward the nose.  This
+    project reports aerospace body axes as ``xb = z_rp``, ``yb = x_rp``, and
+    ``zb = y_rp`` while keeping ENU as the local navigation frame.
+
+    RocketPy flight states store quaternions as body→ENU, so
+    ``maps_body_to_enu`` defaults to ``True``.  Controller reference quaternions
+    produced by this project use ENU→body and should pass
+    ``maps_body_to_enu=False``.  The returned angles are ``(roll, pitch, yaw)``
+    in radians, where pitch is the elevation of ``xb`` above the ENU horizontal
+    plane and yaw is 0 at North, positive toward East.
+    """
+    if np.any(np.isnan(q)):
+        return np.nan, np.nan, np.nan
+
+    r = quaternion_to_matrix(q)
+    if maps_body_to_enu:
+        r_enu_rp = r
+        r_enu_body = np.column_stack((
+            r_enu_rp[:, 2],  # xb = z_rp
+            r_enu_rp[:, 0],  # yb = x_rp
+            r_enu_rp[:, 1],  # zb = y_rp
+        ))
+    else:
+        # q maps ENU vectors into RocketPy body coordinates.
+        rp_to_body = np.array([
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ])
+        r_body_enu = rp_to_body @ r
+        r_enu_body = r_body_enu.T
+
+    xb_enu = r_enu_body[:, 0]
+    yb_enu = r_enu_body[:, 1]
+
+    horizontal = np.hypot(xb_enu[0], xb_enu[1])
+    pitch = np.arctan2(xb_enu[2], horizontal)
+    yaw = np.arctan2(xb_enu[0], xb_enu[1]) if horizontal > 1e-12 else 0.0
+
+    # Reference no-roll frame for the same heading/pitch.  yb points right and
+    # zb points down when roll is zero.
+    local_down = np.array([0.0, 0.0, -1.0])
+    yb_zero = np.cross(local_down, xb_enu)
+    norm_yb_zero = np.linalg.norm(yb_zero)
+    if norm_yb_zero < 1e-12:
+        roll = 0.0
+    else:
+        yb_zero /= norm_yb_zero
+        roll = np.arctan2(
+            np.dot(xb_enu, np.cross(yb_zero, yb_enu)),
+            np.dot(yb_zero, yb_enu),
+        )
 
     return roll, pitch, yaw
 

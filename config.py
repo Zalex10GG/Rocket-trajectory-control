@@ -13,14 +13,20 @@ class Config:
     control_dt_s: float = 0.02  # 50 Hz
     max_time_s: float = 600.0  # High enough to reach apogee
 
-    # Guidance PD gains
-    Kp_guidance: float = 0.5
-    Kd_guidance: float = 1.0
+    # Directional guidance gains and limits
+    Kp_direction_guidance: float = 0.05
+    Kd_direction_guidance: float = 0.1
+    max_attitude_correction_deg: float = 5.0
+    min_reference_speed_for_attitude_m_s: float = 1.0
+    max_commanded_aoa_deg: float = 12.0
 
-    # Attitude PID gains (Pitch/Yaw) — Ziegler-Nichols from tools/tunning.py
-    Kp_attitude: float = 0.001393
-    Ki_attitude: float = 0.002335
-    Kd_attitude: float = 0.000208
+    # Attitude PID gains (Pitch/Yaw) — Ziegler-Nichols baseline from tools/tunning.py
+    Kp_attitude_zn: float = 0.001393
+    Ki_attitude_zn: float = 0.002335
+    Kd_attitude_zn: float = 0.000208
+
+    # Attitude loop multiplication factor (tune this to scale all three gains together)
+    attitude_gain_scale: float = 3.59
 
     # Roll PID gains — Ziegler-Nichols from tools/tunning.py
     Kp_roll: float = 0.006214
@@ -38,9 +44,6 @@ class Config:
     # Dynamic pressure cutoff threshold (Pa)
     q_min_cutoff_pa: float = 100.0
 
-    # Max guidance correction acceleration (m/s²)
-    a_max_guidance_correction_m_s2: float = 8.0
-
     # Control activation
     control_start_delay_s: float = 1.0
     safety_margin_m: float = 1.0
@@ -48,11 +51,6 @@ class Config:
 
     # Control cutoff
     apogee_control_cutoff_delay_s: float = 0.5
-
-    # Guidance acceleration low-pass filter (alpha EMA on accel_cmd_enu).
-    # Range (0, 1): smaller alpha = more smoothing, 1.0 disables filtering.
-    # First active sample initializes to raw value; resets on control cutoff.
-    guidance_accel_filter_alpha: float = 0.3
 
     # Servo command smoothing
     actuator_command_filter_tau_s: float = 0.00
@@ -93,6 +91,18 @@ class Config:
     use_wind: bool = False
     save_results: bool = True
     show_plots: bool = False
+
+    @property
+    def Kp_attitude(self) -> float:
+        return self.Kp_attitude_zn * self.attitude_gain_scale
+
+    @property
+    def Ki_attitude(self) -> float:
+        return self.Ki_attitude_zn * self.attitude_gain_scale
+
+    @property
+    def Kd_attitude(self) -> float:
+        return self.Kd_attitude_zn * self.attitude_gain_scale
 
 
 def load_config() -> Config:

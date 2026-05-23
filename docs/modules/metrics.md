@@ -2,39 +2,75 @@
 
 ## Overview
 
-Computes performance indicators for the controlled flight, focusing on tracking accuracy and control effort during the ascent phase.
+`src.metrics.compute_tracking_metrics()` computes tracking, saturation, control-drag, and flight-summary metrics from `flight_history`.
 
-## Tracking Metrics
+The nominal metrics focus on the active-control window. The active-control window is detected from controller diagnostics when available, with fin-deflection fallback logic in `src.utils`.
 
-For each timestep $i$, the position error $\vec{e}_i$ is defined as the difference between the reference and the real position:
+## Position Error
 
-$$\vec{e}_i = \vec{p}_{ref,i} - \vec{p}_{real,i}$$
+For each active-control sample:
 
-### 1. Mean Absolute Error (MAE)
-Measures the average magnitude of the position error:
+```text
+e_pos = reference position - simulated position
+```
 
-$$\text{MAE} = \frac{1}{N} \sum_{i=1}^{N} \|\vec{e}_i\|_2$$
+The function computes:
 
-### 2. Root Mean Square Error (RMSE)
-Penalizes larger deviations more heavily than MAE:
+- `ctrl_mae_3d_m`
+- `ctrl_rmse_3d_m`
+- `ctrl_max_error_3d_m`
+- `ctrl_mae_x_m`
+- `ctrl_mae_y_m`
+- `ctrl_mae_z_m`
+- `ctrl_rmse_lateral_m`
+- `ctrl_max_lateral_m`
 
-$$\text{RMSE} = \sqrt{\frac{1}{N} \sum_{i=1}^{N} \|\vec{e}_i\|_2^2}$$
+## Fin And Saturation Metrics
 
-## Control Effort Metrics
+The metrics include:
 
-### 1. Fin Saturation Ratio
-The percentage of the control phase where at least one fin was at its deflection limit:
+- `max_fin_deflection_deg`
+- `fin_saturation_ratio`
+- `saturation_time_s`
+- `active_control_duration_s`
+- `saturation_time_ratio`
 
-$$R_{sat} = \frac{\text{Samples with } |\delta| \geq \delta_{limit}}{\text{Total Samples}}$$
+When controller diagnostics exist, saturation is computed from `limited_deltas_rad` and the live `delta_limit_rad`.
 
-### 2. Control-Induced Drag
-The drag coefficient $C_D$ generated specifically by the fin deflections:
+## Control Diagnostics
 
-$$C_{D,i} = k \cdot (C_{N,i}^2 + C_{y,i}^2)$$
+When controller diagnostics exist, the metrics include:
 
-## Key Outputs
+- `max_control_cD`
+- `mean_control_cD`
+- `max_commanded_aoa_deg`
+- `mean_commanded_aoa_deg`
+- `duplicate_callback_count`
+- last dynamic pressure
+- last airspeed
+- last wind speed
 
-The metrics are exported in `metrics.json` and include:
-- **Trajectory Accuracy**: MAE/RMSE for each axis (X, Y, Z).
-- **Control Stats**: Maximum and average fin deflections.
-- **Flight Summary**: Apogee altitude, maximum Mach number, and control duration.
+## Flight Summary
+
+The `summary` object contains:
+
+- launch altitude ASL
+- maximum altitude ASL
+- maximum local altitude
+- time of apogee
+- final simulation time
+- maximum speed
+- active-control start, end, and duration
+- ascent-window start, end, and duration
+- maximum fin deflection
+- saturation ratio
+- lateral RMSE
+- control drag diagnostics
+- commanded angle-of-attack diagnostics
+- duplicate callback count
+
+`src.simulation.export_results()` writes this summary to `flight_summary.csv`.
+
+## Gain Sweep Metrics
+
+`tools/sweep_gain_scale.py` computes its own apogee-limited metrics over the simulated ascent up to apogee. Those sweep metrics are exported to `tools/results/sweep/sweep_metrics.csv` and are documented in `docs/tools/sweep_gain_scale.md`.

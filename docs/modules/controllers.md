@@ -2,113 +2,116 @@
 
 ## Overview
 
-Implements the **fin deflection controller** using a dual-loop architecture: an outer-loop PD guidance system and an inner-loop PID attitude controller.
+`src.controllers` contains the closed-loop fin controller registered through RocketPy's private `_Controller` hook. The controller is implemented as a stateful callback around a mutable controller dictionary created by `build_controller(config)`.
 
-## Control Architecture
+## Controller State
 
-```mermaid
-graph TD
-    Ref[Reference Trajectory ENU] --> Guidance[PD Guidance]
-    State[Rocket State ENU/Body] --> Guidance
-    Guidance --> AccelCmd[a_cmd ENU]
-    AccelCmd --> AttSelection[Attitude Selection]
-    AttSelection --> QRef[q_ref ENU to Body]
-    QRef --> AttPID[Attitude PID Body Frame]
-    State --> AttPID
-    AttPID --> Mixer[Mixer]
-    Mixer --> Actuators[Actuator Limits]
-    Actuators --> Deltas[Fin Deflections δ]
+`build_controller(config)` returns a dictionary with:
+
+- pitch, yaw, and roll integral error state
+- current fin deflections
+- deflection history
+- desired attitude quaternion history
+- dynamic-pressure history
+- controller diagnostics
+- actuation limits copied later from the rocket TOML
+
+`src.rocket_builder.build_rocket()` fills TOML-derived values such as `delta_max_rad`, `delta_dot_max_rad_s`, `cN_delta`, `cy_delta`, and `k_drag_induced`.
+
+## Activation Conditions
+
+`fin_controller(...)` commands zero fin deflection until all activation conditions are satisfied:
+
+- current time is after `config.control_start_delay_s`
+- rocket height above launch is at least `config.control_start_min_height_above_launch_m`
+- simulated rocket vertical velocity is positive
+- current time is within the reference duration
+- reference vertical velocity is positive
+- dynamic pressure is above `config.q_min_cutoff_pa`
+
+When inactive, the controller records diagnostics and keeps `current_deltas` at zero.
+
+## Guidance
+
+The controller samples the reference at the current time and computes:
+
+```text
+position error = reference position - current position
+velocity error = reference velocity - current velocity
 ```
 
-## Mathematical Model
+The guidance command uses:
 
-### 1. Outer-Loop Guidance
+- `Kp_direction_guidance`
+- `Kd_direction_guidance`
+- wind compensation through `K_wind_comp` when wind is enabled
+- correction limiting through `max_attitude_correction_deg`
+- commanded angle-of-attack limiting through `max_commanded_aoa_deg`
 
-The guidance law computes a commanded acceleration $\vec{a}_{cmd}$ in the ENU frame:
+The resulting commanded nose direction is converted to an ENU-to-body attitude quaternion with `compute_desired_attitude()`.
 
-$$\vec{a}_{cmd} = \vec{a}_{ref} + K_{p,guid} (\vec{p}_{ref} - \vec{p}) + K_{d,guid} (\vec{v}_{ref} - \vec{v}) + \vec{g}$$
+## Attitude PID
 
-Where:
-- $\vec{a}_{ref}, \vec{p}_{ref}, \vec{v}_{ref}$ are reference acceleration, position, and velocity.
-- $\vec{g} = [0, 0, g]^T$ is the gravity compensation.
+The attitude loop uses the error quaternion:
 
-### 2. Attitude Selection
+```text
+q_error = q_ref * conjugate(q_real)
+```
 
-The desired attitude $q_{ref}$ aligns the rocket's longitudinal axis (Body $+Z$) with the commanded acceleration:
+The controller maps quaternion vector components to:
 
-$$\hat{d} = \frac{\vec{a}_{cmd}}{\|\vec{a}_{cmd}\|}$$
-$$q_{ref} = \text{quat\_from\_vectors}(\hat{d}, [0, 0, 1]^T)$$
+- pitch error: `-q_error[1]`
+- yaw error: `-q_error[2]`
+- roll error: `q_error[3]`
 
-### 3. Inner-Loop Attitude Control (Body Frame)
+Pitch and yaw use `Kp_attitude`, `Ki_attitude`, and `Kd_attitude`. These are calculated properties from `config.py`:
 
-The attitude control loop operates on the body-frame attitude error vector $\vec{\epsilon} = [q_{e,x}, q_{e,y}, q_{e,z}]^T$ extracted from the error quaternion $q_e = q_{ref} \otimes q_{real}^*$ (scalar-first format $[w, x, y, z]$).
+```python
+Kp_attitude = Kp_attitude_zn * attitude_gain_scale
+Ki_attitude = Ki_attitude_zn * attitude_gain_scale
+Kd_attitude = Kd_attitude_zn * attitude_gain_scale
+```
 
-To maintain constant closed-loop bandwidth across a wide dynamic pressure range, the PID gains are scaled inversely with dynamic pressure $q$:
+Roll uses `Kp_roll`, `Ki_roll`, and `Kd_roll`.
 
-$$q_{scale} = \min\left(\frac{q_{ref\_val}}{\max(q, q_{min})}, q_{scale\_max}\right)$$
+## Dynamic-Pressure Gain Scheduling
 
-The attitude control commands for the three body axes are:
+When `enable_gain_scheduling` is true, the attitude and roll gains are scaled by:
 
-- **Pitch (Body X):**
-  $$u_{pitch} = K_{p,att} q_{scale} \epsilon_x + K_{i,att} q_{scale} \int \epsilon_x dt - K_{d,att} q_{scale} \omega_x$$
+```text
+q_scale = qbar_ref_pa / max(q_dynamic, q_min_cutoff_pa)
+```
 
-- **Yaw (Body Y):**
-  $$u_{yaw} = K_{p,att} q_{scale} \epsilon_y + K_{i,att} q_{scale} \int \epsilon_y dt - K_{d,att} q_{scale} \omega_y$$
+`q_scale` is capped by `gain_scheduling_max_scale`.
 
-- **Roll (Body Z):**
-  $$u_{roll} = K_{p,roll} q_{scale} \epsilon_z + K_{i,roll} q_{scale} \int \epsilon_z dt - K_{d,roll} q_{scale} \omega_z$$
+## Mixer
 
-> [!NOTE]
-> The derivative gain is applied directly to the body angular rates $(\omega_x, \omega_y, \omega_z)$ rather than the numerical derivative of the error vector. This avoids derivative kick and provides excellent damping. Because of the rear-fin aerodynamic moment arm inversion (where positive deflection generates a negative pitching moment), the damping term uses a minus sign (meaning positive feedback relative to angular velocity is stabilizing).
+The mixer maps pitch, yaw, and roll control outputs to four fin deflections:
 
-### 4. Anti-Windup (Conditional Integration)
+```text
+delta0 = -pitch + roll
+delta1 = -yaw   + roll
+delta2 =  pitch + roll
+delta3 =  yaw   + roll
+```
 
-To prevent integrator windup during saturation (such as at lift-off or during aggressive maneuvers), a **conditional integration** strategy is used. The integrator on each axis is updated only if the predicted raw control signal for that axis does not cause any individual fin to exceed the live deflection authority limit $\delta_{limit}$:
+The same convention is used by `src.fin_model.FinAdapter` when extracting pitch, yaw, and roll deflection components from `current_deltas`.
 
-$$\text{If } |\delta_{raw, i}| < \delta_{limit} \text{ for all affected fins, then } \int \epsilon_i dt \leftarrow \int \epsilon_i dt + \epsilon_i \cdot dt$$
+## Limits And Anti-Windup
 
-### 5. Mixer
+The controller applies:
 
-The mixer maps the virtual control commands $(u_{pitch}, u_{yaw}, u_{roll})$ to the cruciform (+) arrangement of 4 tail fins:
+- conditional integration anti-windup
+- optional first-order command smoothing from `actuator_command_filter_tau_s`
+- rate limiting using `delta_dot_max_rad_s`
+- dynamic-pressure authority limiting through `_compute_qbar_authority_limit(...)`
 
-$$\begin{aligned}
-\delta_1 &= -u_{pitch} + u_{roll} \quad \text{(Fin 1: Right, }+x_b\text{)} \\
-\delta_2 &= -u_{yaw} + u_{roll} \quad \text{(Fin 2: Down, }+y_b\text{)} \\
-\delta_3 &= u_{pitch} + u_{roll} \quad \text{(Fin 3: Left, }-x_b\text{)} \\
-\delta_4 &= u_{yaw} + u_{roll} \quad \text{(Fin 4: Up, }-y_b\text{)}
-\end{aligned}$$
-
-This mapping ensures:
-- A positive pitch command (nose-up) requests a negative deflection on Fin 1 and positive on Fin 3. In the aerodynamic model, this creates a downward force at the tail ($C_L < 0$), generating a positive (nose-up) pitching moment around the CG.
-- A positive yaw command (nose-right) requests a negative deflection on Fin 2 and positive on Fin 4, creating a leftward side force and a positive (nose-right) yawing moment.
-- A positive roll command (clockwise looking forward) deflects all four fins equally, producing a pure rolling torque.
-
-### 6. Actuator Limits and Scheduling
-
-**1. Guidance Acceleration Filter:**
-To smooth out abrupt requested attitude jumps caused by noise or wind shear, a low-pass Exponential Moving Average (EMA) filter is applied to the commanded acceleration before attitude conversion:
-
-$$\vec{a}_{cmd, filtered} = \alpha_f \vec{a}_{cmd} + (1 - \alpha_f) \vec{a}_{cmd, prev}$$
-
-**2. Dynamic-Pressure-Based Trapezoidal Fin Authority Limits:**
-To protect the actuators at high dynamic pressures and prevent saturation / windup at low speeds, the maximum allowable deflection limit ($\delta_{limit}$) is scheduled using a trapezoidal profile based on $q$:
-
-$$\delta_{limit}(q) = \begin{cases} 
-\delta_{min} & \text{if } q \le q_{min} \\
-\delta_{min} + \frac{q - q_{min}}{q_{full} - q_{min}} (\delta_{max} - \delta_{min}) & \text{if } q_{min} < q < q_{full} \\
-\delta_{max} & \text{if } q_{full} \le q \le q_{high} \\
-\delta_{high} & \text{if } q > q_{high}
-\end{cases}$$
-
-Where:
-- $\delta_{min} = 2.86^\circ$ ($0.05$ rad) under low dynamic pressure ($q < 500$ Pa) to prevent massive actuator deflection commands when there is no air to steer the vehicle.
-- $\delta_{max} = 20^\circ$ ($0.349$ rad) represents the full structural deflection capability.
-- $\delta_{high} = 5.73^\circ$ ($0.10$ rad) protects the fins from excessive bending moments and structural failure at extreme high speeds.
+The q-bar authority schedule uses the configured low, full, and high dynamic-pressure thresholds and returns the live fin deflection limit used for saturation and diagnostics.
 
 ## Key Functions
 
-- `fin_controller`: The primary stateful callback registered with RocketPy's ODE solver. Features callback idempotency guarding to prevent dual updates, calculates live atmosphere parameters, and applies the guidance/attitude/mixer/limiter pipeline.
-- `_compute_qbar_authority_limit`: Computes the trapezoidal deflection limit $\delta_{limit}(q)$ for the current timestep.
-- `compute_desired_attitude`: Aligns the rocket's longitudinal Z-axis with the commanded acceleration vector and zeroes out the longitudinal roll command to prevent parasitic coupling.
-- `build_controller`: Initializes the controller state dictionary (integrators, history buffers, and callbacks).
-
+- `fin_controller(...)`: RocketPy callback implementing guidance, attitude control, mixing, limits, and diagnostics.
+- `build_controller(config)`: initializes the controller state dictionary.
+- `compute_desired_attitude(a_cmd_enu)`: returns an ENU-to-body quaternion that aligns body +Z with the command direction.
+- `compute_nose_direction_command(...)`: computes and limits the desired nose direction.
+- `_compute_qbar_authority_limit(...)`: computes the live deflection authority limit.

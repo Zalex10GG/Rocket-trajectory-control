@@ -67,6 +67,6 @@ All diagnostic and fitted curves are saved in `tools/results/`:
     - **Roll Damping Pole** at $s = -1/\tau \approx -200.0$ rad/s, representing the high-speed roll rate boundary layer lag.
     - **Integrator / Attitude Pole** at $s = 0$ rad/s, representing the physical integration from roll rate $\omega_z$ to roll angle $\phi$, corresponding to the attitude transfer function $G_{\phi}(s) = \frac{K_r}{s(\tau s + 1)}$.
 
-The suggested gains are printed directly to the console and should be set in `config.py`.
+The suggested pitch/yaw gains are printed directly to the console as Ziegler-Nichols baseline values. In the current configuration, those baseline values correspond to `Kp_attitude_zn`, `Ki_attitude_zn`, and `Kd_attitude_zn`; the active pitch/yaw gains are those baselines multiplied by `attitude_gain_scale`.
 
 

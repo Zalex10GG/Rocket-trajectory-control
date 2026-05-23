@@ -11,6 +11,7 @@ def load_initial_case_data(config):
     
     return {
         "rocket_params": rocket_params,
+        "rocket_path": config.rocket_path,
         "motor_path": config.motor_path,
         "drag_path": config.drag_path,
         "reference_path": config.reference_path,

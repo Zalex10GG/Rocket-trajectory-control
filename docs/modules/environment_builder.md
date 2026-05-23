@@ -2,36 +2,40 @@
 
 ## Overview
 
-Constructs the RocketPy `Environment` object, which defines the launch site location, date, and atmospheric model.
+`src.environment_builder` creates the RocketPy `Environment` from `config.py`.
 
-## Atmospheric Models
+## `build_environment(case_data, config)`
 
-Supports three modes controlled by `config.atmosphere_type`:
-- **Standard**: Uses the International Standard Atmosphere (ISA).
-- **Reanalysis**: Downloads historical ERA5 data for the specified `launch_date` via the CDS API.
-- **Forecast**: Downloads GFS forecast data for future dates.
+The environment uses:
 
-## Key Functions
+- `config.latitude`
+- `config.longitude`
+- `config.elevation_asl_m`
+- `config.launch_date`
 
-### `build_environment(case_data, config)`
-Creates and configures the environment. It pulls site coordinates directly from `config.py`:
-- `latitude`
-- `longitude`
-- `elevation_asl_m`
+If `config.use_wind` is false, the builder sets:
 
-### `_download_era5(launch_date)`
-Automates the retrieval of NetCDF atmospheric data. It uses a bounding box around the launch site to minimize file size:
-- **Area**: $[44^\circ N, 8^\circ W, 40^\circ N, 4^\circ E]$
-- **Variables**: Geopotential, temperature, and wind components ($u, v$).
+```python
+env.set_atmospheric_model(type="standard_atmosphere")
+```
 
-## Atmospheric Properties
+If `config.use_wind` is true, it uses `config.atmosphere_type`.
 
-The `Environment` object provides the physics engine with real-time data for:
-- **Density ($\rho$)**: Used for drag and dynamic pressure calculations.
-- **Speed of Sound ($a$)**: Used for Mach number determination.
-- **Wind Velocity ($\vec{v}_{wind}$)**: Used to compute the rocket's angle of attack and guidance corrections.
+## Atmospheric Modes
 
-## Implementation Details
-- **Date Handling**: Uses `config.launch_date` (tuple: year, month, day, hour) for all temporal calculations.
-- **Caching**: Atmospheric files are stored in `data/atmosphere/` to avoid redundant downloads.
-- **Fallback**: If remote data fetching fails, the builder automatically falls back to the `standard_atmosphere` to ensure simulation continuity.
+- `auto`: selects `Reanalysis` for past launch dates and `Forecast` for future launch dates.
+- `Reanalysis`: uses `config.atmosphere_file` if present, otherwise downloads ERA5 data.
+- `Forecast`: uses `config.atmosphere_file` or RocketPy's `GFS` option.
+- Any other `atmosphere_type`: passed directly to RocketPy.
+
+If atmospheric setup fails, the builder prints a warning and falls back to `standard_atmosphere`.
+
+## ERA5 Cache
+
+Downloaded ERA5 files are stored in:
+
+```text
+data/atmosphere/
+```
+
+The request uses pressure levels from 100 hPa to 1000 hPa and variables for geopotential, temperature, and horizontal wind components.

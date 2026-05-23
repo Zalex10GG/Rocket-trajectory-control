@@ -181,9 +181,15 @@ def compute_tracking_metrics(flight_history, reference, config, controller_state
             cD_values = [d.get("effective_cD", 0.0) for d in active_diag]
             metrics["max_control_cD"] = float(max(cD_values))
             metrics["mean_control_cD"] = float(np.mean(cD_values))
+            
+            alpha_cmd_values = [d.get("alpha_cmd_deg", 0.0) for d in active_diag]
+            metrics["max_commanded_aoa_deg"] = float(max(alpha_cmd_values))
+            metrics["mean_commanded_aoa_deg"] = float(np.mean(alpha_cmd_values))
         else:
             metrics["max_control_cD"] = 0.0
             metrics["mean_control_cD"] = 0.0
+            metrics["max_commanded_aoa_deg"] = 0.0
+            metrics["mean_commanded_aoa_deg"] = 0.0
 
     # --- Duplicate callback counter ---
     if controller_state:
@@ -224,6 +230,7 @@ def compute_tracking_metrics(flight_history, reference, config, controller_state
         "ctrl_rmse_lateral_m": metrics["ctrl_rmse_lateral_m"],
         "max_control_cD": metrics.get("max_control_cD", 0.0),
         "mean_control_cD": metrics.get("mean_control_cD", 0.0),
+        "max_commanded_aoa_deg": metrics.get("max_commanded_aoa_deg", 0.0),
         "duplicate_callback_count": metrics.get("duplicate_callback_count", 0),
     }
 

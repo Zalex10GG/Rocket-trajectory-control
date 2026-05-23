@@ -2,35 +2,60 @@
 
 ## Overview
 
-Assembles the virtual rocket in RocketPy by integrating mass properties, motor characteristics, and aerodynamic surfaces.
+`src.rocket_builder` constructs the RocketPy rocket, motor, passive fins, active control surface, optional parachute, and output artifacts.
 
-## Rocket Assembly
+## `build_rocket(case_data, config, controller_state)`
 
-The builder pulls all physical data from the TOML file:
-1. **Core**: Initializes the `Rocket` with mass and inertia tensors.
-2. **Motor**: Adds a `SolidMotor` using the thrust curve CSV and grain properties.
-3. **Aero Surfaces**: Adds the nose cone and fins.
-4. **Control**: Integrates the `GenericSurface` using a `FinAdapter` to allow real-time control.
+The builder reads the rocket TOML from `case_data["rocket_params"]`.
 
-## Longitudinal Axis Convention
+It creates:
 
-RocketPy uses a coordinate system along the longitudinal axis. This project follows the **Tail-to-Nose** convention:
-- **Tail**: Positioned at $0$ (or negative values in some contexts).
-- **Nose**: Positioned at the total length of the rocket.
+- `rocketpy.GenericMotor` from the motor TOML parameters and thrust CSV.
+- `rocketpy.Rocket` from body mass, inertia, radius, drag data, and center of mass.
+- Nose cone from the TOML `nosecone` section.
+- Active `rocketpy.GenericSurface` controlled by `src.fin_model.FinAdapter`.
+- Optional parachute from the TOML `parachute` section.
+- Passive trapezoidal fins from the TOML `fins` section.
 
-## Component Integration
+## Active Control Surface
 
-### `build_rocket`
-The main entry point for rocket construction. It:
-- Sets the center of mass and inertia tensors.
-- Loads the motor from `config.motor_path`.
-- Configures the `GenericSurface` for active control using coefficients from the `[control_actuation]` TOML section.
+`FinAdapter` builds the GenericSurface coefficient dictionary. The active surface is added at:
 
-### `FinAdapter`
-Acts as the bridge between the controller and the physics engine. It defines the aerodynamic coefficients as functions of the current fin deflections $\delta$:
+```text
+fins.position_from_tail_m - fins.center_of_pressure_m
+```
 
-$$C_{N} = C_{N_{\delta}} \cdot \delta_{pitch}$$
-$$C_{y} = C_{y_{\delta}} \cdot \delta_{yaw}$$
-$$C_{D} = k \cdot (C_{N}^2 + C_{y}^2)$$
+The GenericSurface uses:
 
-These coefficients are updated at every integrator step by reading the `current_deltas` from the controller state.
+- `reference_area_m2`
+- `reference_length_m`
+- control coefficient functions from `FinAdapter`
+- `CONTROL_SURFACE_NAME`
+
+## Controller State Population
+
+The builder copies TOML actuation values into `controller_state`:
+
+- `delta_max_rad`
+- `delta_dot_max_rad_s`
+- `cN_delta`
+- `cy_delta`
+- `k_drag_induced`
+
+It also derives:
+
+```python
+config.control_start_min_height_above_launch_m = config.rail_length_m + config.safety_margin_m
+```
+
+## Output Artifacts
+
+`export_rocket_creation_artifacts(...)` writes:
+
+- `effective_config.json`
+- `rocket_definition.toml`
+- `rocket_artifacts.json`
+
+## RocketPy Plot Patch
+
+`_FixedRocketPlots` patches RocketPy's rocket drawing so fin root chords remain visible in the saved rocket diagram.

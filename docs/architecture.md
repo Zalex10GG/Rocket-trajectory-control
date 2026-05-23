@@ -2,79 +2,78 @@
 
 ## System Overview
 
-The Rocket Control TFG project implements a closed-loop trajectory control system for sounding rockets using rear-fin deflection. The system integrates with RocketPy's 6-DOF flight simulation using its internal `_Controller` infrastructure.
+The simulator runs a closed-loop 6-DOF RocketPy flight with active rear-fin control. The main workflow is intentionally sequential:
 
-## System Architecture
+1. Load configuration and case data.
+2. Load the reference trajectory.
+3. Build controller state.
+4. Build environment.
+5. Build rocket and active control surface.
+6. Simulate closed-loop flight.
+7. Compute metrics.
+8. Export results and plots.
+
+## Main Data Flow
 
 ```mermaid
 graph TD
-    subgraph Input
-        Config[config.py]
-        TOML[Rocket TOML]
-        Reference[Trajectory CSV]
-    end
-
-    subgraph Core_Engine
-        Main[main.py]
-        Builder[Rocket Builder]
-        EnvBuilder[Environment Builder]
-        Sim[Simulation Orchestrator]
-    end
-
-    subgraph Flight_Simulation_RocketPy
-        Physics[6-DOF Physics Engine]
-        ControllerHook[_Controller Hook]
-    end
-
-    subgraph Control_Logic
-        Control[fin_controller]
-        Guidance[PD Guidance]
-        Attitude[PID Attitude]
-        Mixer[Mixer]
-        FinAdapter[FinAdapter Aerodynamics]
-    end
-
-    Input --> Main
-    Main --> Builder
-    Main --> EnvBuilder
-    Main --> Sim
-    
-    Builder --> Physics
-    EnvBuilder --> Physics
-    Sim --> Physics
-    
-    Physics <--> ControllerHook
-    ControllerHook <--> Control
-    
-    Control --> Guidance
-    Guidance --> Attitude
-    Attitude --> Mixer
-    Mixer --> FinAdapter
-    FinAdapter --> Physics
+    Config["config.py"] --> Main["main.py"]
+    CaseData["initial_data.py"] --> Main
+    ReferenceCSV["Reference CSV"] --> Reference["src.reference"]
+    Main --> Controller["src.controllers.build_controller"]
+    Main --> Environment["src.environment_builder.build_environment"]
+    Main --> Rocket["src.rocket_builder.build_rocket"]
+    Controller --> Rocket
+    Rocket --> Simulation["src.simulation.simulate_controlled_flight"]
+    Environment --> Simulation
+    Reference --> Simulation
+    Simulation --> History["flight_history"]
+    History --> Metrics["src.metrics.compute_tracking_metrics"]
+    History --> Export["src.simulation.export_results"]
+    Metrics --> Export
 ```
 
-## Data Flow
+## RocketPy Integration
 
-### 1. Initialization
-- **Configuration**: `config.py` acts as the single source of truth for paths, launch site, and simulation parameters.
-- **Environment**: Sets up the RocketPy `Environment` using location data from `config.py`.
-- **Rocket**: Constructs the `Rocket` assembly from the TOML file specified in `config.py`.
+`src.simulation.simulate_controlled_flight()` registers a RocketPy private `_Controller` callback. At each controller callback, RocketPy provides the state vector:
 
-### 2. Control Loop
-During each step of the ODE solver:
-- **State Feedback**: The controller receives the 13-state vector (position, velocity, quaternion, angular rates) in the local ENU frame.
-- **Guidance**: Computes commanded acceleration to minimize trajectory error.
-- **Attitude Control**: Determines target orientation and uses a PID loop for virtual moments.
-- **Actuation**: Maps moments to fin deflections via a mixer.
-- **Aerodynamics**: The `FinAdapter` applies these deflections to the aerodynamic model in real-time.
+```text
+[x, y, z, vx, vy, vz, q0, q1, q2, q3, wx, wy, wz]
+```
 
-### 3. Output
-- **Metrics**: Computes tracking performance (MAE, RMSE) and control effort.
-- **Visualization**: Generates plots for trajectory, attitude, and actuator history.
-- **Results**: Exports all data to a timestamped directory `results/YYYYMMDD_HHMMSS/`.
+Positions from RocketPy include launch elevation. The exported `position_enu_m` subtracts the launch position so all controller outputs, references, metrics, and plots use local ENU coordinates.
 
-## Design Patterns
+## Control Pipeline
 
-- **Single Source of Truth**: All simulation constants and paths reside in `config.py`.
-- **Dynamic Parameters**: Rocket physics (mass, inertia, coefficients) are pulled directly from the TOML at runtime.
-- **Stateful Callback**: A dictionary-based state allows the controller to maintain integrals and history across integrator steps.
+```mermaid
+graph TD
+    State["Rocket state"] --> Guidance["PD guidance"]
+    Reference["Reference sample"] --> Guidance
+    Guidance --> NoseCommand["Nose direction command"]
+    NoseCommand --> AttitudeRef["Desired quaternion"]
+    AttitudeRef --> PID["Pitch/yaw/roll PID"]
+    State --> PID
+    PID --> Mixer["4-fin mixer"]
+    Mixer --> Limits["Filter, rate limit, q-bar limit"]
+    Limits --> Deltas["controller current_deltas"]
+    Deltas --> FinAdapter["FinAdapter"]
+    FinAdapter --> GenericSurface["RocketPy GenericSurface"]
+```
+
+The controller state is a mutable dictionary. `FinAdapter` reads `controller["current_deltas"]` through a module-level state reference, so RocketPy coefficient evaluation always sees the latest command.
+
+## Output Flow
+
+`src.simulation.export_results()` writes:
+
+- CSV state history.
+- Summary CSV.
+- Metrics JSON.
+- Controller diagnostics CSV.
+- Effective config JSON.
+- Rocket TOML copy.
+- Rocket artifacts JSON.
+- Simulation plots.
+- Control-phase plots.
+
+The gain sweep uses the same build/simulate path but writes compact sweep outputs to `tools/results/sweep/`.
