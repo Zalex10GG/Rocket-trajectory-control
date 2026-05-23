@@ -2,55 +2,91 @@
 
 ## Prerequisites
 
-- **Python**: >= 3.12
-- **Package Manager**: [uv](https://github.com/astral-sh/uv)
+- Python 3.12 or newer
+- `uv`
 
-### Setup
-Sync the environment and dependencies:
+Install dependencies from the lockfile:
+
 ```bash
 uv sync
 ```
 
-## Execution
+## Nominal Simulation
 
-### Nominal Simulation
-Runs the full closed-loop control simulation:
+Run the closed-loop simulation:
+
 ```bash
 uv run main.py
 ```
 
-### Reference Generation
-If the trajectory reference is missing:
+Or use the installed console script:
+
+```bash
+uv run rocket-control
+```
+
+The run sequence is:
+
+1. `config.load_config()` creates the execution configuration.
+2. `initial_data.load_initial_case_data()` loads paths and the rocket TOML.
+3. `src.reference.load_reference_trajectory()` loads the configured reference.
+4. `src.controllers.build_controller()` creates the mutable controller state.
+5. `src.environment_builder.build_environment()` builds the RocketPy environment.
+6. `src.rocket_builder.build_rocket()` builds the motor, rocket, passive fins, active `GenericSurface`, and optional parachute.
+7. `src.simulation.simulate_controlled_flight()` runs RocketPy `Flight`.
+8. `src.metrics.compute_tracking_metrics()` computes tracking and diagnostic metrics.
+9. `src.simulation.export_results()` writes CSV, JSON, diagnostics, and plots.
+
+## Gain Scale Sweep
+
+Run:
+
+```bash
+uv run py tools/sweep_gain_scale.py
+```
+
+The sweep interval is configured at the top of `tools/sweep_gain_scale.py`:
+
+```python
+SCALE_MIN = 1.0
+SCALE_MAX = 7.0
+SCALE_STEP = 0.5
+```
+
+For each factor, the tool sets `config.attitude_gain_scale`, rebuilds the controller and rocket, runs the simulation with `terminate_on_apogee = True`, computes apogee-limited metrics, and writes outputs to `tools/results/sweep/`.
+
+## Reference Generation
+
+If the default vertical reference is missing:
+
 ```bash
 uv run py -c "from src.gen_reference import generate_vertical_reference; generate_vertical_reference('data/trajectory/vertical.csv', max_altitude=1000, duration=20)"
 ```
 
-## Configuration
+Passive trajectory references can also be generated with:
 
-All parameters are centralized in `config.py`. Key sections include:
+```bash
+uv run py tools/trajectory-creator.py
+```
 
-### 1. Control Gains
-- `Kp_guidance`, `Kd_guidance`: Outer-loop (trajectory tracking).
-- `Kp_attitude`, `Ki_attitude`, `Kd_attitude`: Inner-loop (pitch/yaw attitude).
-- `Kp_roll`: Roll rate damping.
+## Configuration Summary
 
-### 2. Launch Site
-- `latitude`, `longitude`, `elevation_asl_m`: Geodetic location.
-- `rail_length_m`: Length of the launch rail.
-- `inclination_deg`: 90 for vertical, < 90 for inclined launches.
+`config.py` contains execution parameters, paths, launch site, atmosphere settings, and controller gains.
 
-### 3. Atmosphere
-- `atmosphere_type`: "standard", "auto", "Reanalysis", or "Forecast".
+Attitude gains are calculated from the Ziegler-Nichols baseline gains and the gain-scale factor:
+
+```python
+Kp_attitude = Kp_attitude_zn * attitude_gain_scale
+Ki_attitude = Ki_attitude_zn * attitude_gain_scale
+Kd_attitude = Kd_attitude_zn * attitude_gain_scale
+```
+
+The physical control-surface limits are read from the rocket TOML `[control_actuation]` section and copied into the controller state by `src.rocket_builder.build_rocket()`.
 
 ## Results
 
-Each run generates a timestamped folder in `results/` (e.g., `results/20260514_203512/`) containing:
-- `flight_history.csv`: Time-series of all states and control signals.
-- `metrics.json`: Statistical tracking performance (MAE, RMSE).
-- `plots/`: Visual analysis of trajectory, attitude, and fins.
+Nominal runs write to `results/<run_id>/`.
 
-## Troubleshooting
+Sweep runs write to `tools/results/sweep/`.
 
-- **Module Not Found**: Run `uv sync` to ensure `.venv` is up to date.
-- **Atmospheric Data**: Ensure you have an internet connection if using "Reanalysis" or "Forecast" modes for the first time.
-- **Reference Feasibility**: If the rocket cannot follow the reference, check if the `delta_max` in the TOML or the aerodynamic coefficients are sufficient for the desired maneuver.
+See [Input and Output Specifications](io_specs.md) and [Plots and Analysis](plots.md) for output details.

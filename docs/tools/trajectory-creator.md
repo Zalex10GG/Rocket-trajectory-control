@@ -21,5 +21,5 @@ uv run py tools/trajectory-creator.py
 
 ## Outputs
 
-- **Trajectory CSV**: `data/trajectory/uncontrolled.csv`. Contains columns for time, $x, y, z$ positions, and $v_x, v_y, v_z$ velocities.
+- **Trajectory CSV**: written to the output path configured in `tools/trajectory-creator.py`. Contains columns for time, $x, y, z$ positions, and $v_x, v_y, v_z$ velocities in local ENU.
 - **Diagnostic Plots**: Visualizations of the thrust curve, static margin, and 3D flight path are saved in `data/trajectory/plots/`.
