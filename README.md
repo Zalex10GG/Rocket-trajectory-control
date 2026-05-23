@@ -120,67 +120,36 @@ Attitude quaternions use scalar-first `[w, x, y, z]` format for ENU-to-body orie
 
 ## Project Structure
 
-<<<<<<< HEAD
-```
-├── main.py                    # Entry point
-├── config.py                  # Execution parameters
-├── initial_data.py            # Loads rocket/motor/drag definitions from config
-├── src/
-│   ├── simulation.py         # RocketPy Flight integration and history extraction
-│   ├── controllers.py        # PID fin controller with quaternion attitude control
-│   ├── fin_model.py          # FinAdapter: maps deltas to GenericSurface coefficients
-│   ├── rocket_builder.py     # Constructs RocketPy Rocket and GenericMotor
-│   ├── environment_builder.py # Constructs RocketPy Environment
-│   ├── reference.py          # Reference trajectory loading and sampling
-│   ├── metrics.py            # Tracking performance metrics
-│   ├── plots.py              # Plotting suite (full-flight + control-phase)
-│   ├── utils.py              # Quaternion math and control window detection
-│   ├── constants.py          # Shared constants (CONTROL_SURFACE_NAME)
-│   └── gen_reference.py      # Utility to generate vertical reference trajectories
-├── data/
-│   ├── rockets/leon_2.toml  # Rocket geometry, motor, and control actuation params
-│   ├── motors/*.csv          # Motor thrust curves
-│   ├── drag/*.csv            # Drag coefficient vs Mach number
-│   └── trajectory/*.csv      # Reference trajectory (time, pos, vel in ENU)
-└── results/
-    └── <run_id>/             # Output directory (timestamped with microseconds)
-        ├── flight_history.csv
-        ├── flight_summary.csv
-        ├── metrics.json
-        ├── manifest.json           # Git metadata, file hashes
-        ├── effective_config.json   # Serializable config
-        ├── rocket_definition.toml  # Copy of rocket TOML
-        ├── rocket_artifacts.json   # Rocket stats
-        └── plots/                  # 10 analysis plots (organized in simulation and control subdirectories)
-=======
 ```text
-main.py                       Nominal simulation entry point
-config.py                     Execution parameters and calculated gains
-initial_data.py               Loads configured rocket, motor, drag, and reference paths
+main.py                         Nominal simulation entry point
+config.py                       Execution parameters and calculated gains
+initial_data.py                 Loads configured rocket, motor, drag, and reference paths
 src/
-  controllers.py              Guidance, attitude PID, mixer, limits, diagnostics
-  environment_builder.py      RocketPy Environment construction
-  fin_model.py                FinAdapter GenericSurface coefficient bridge
-  gen_reference.py            Reference generation helper
-  metrics.py                  Tracking and control metrics
-  plots.py                    Nominal simulation plot generation
-  reference.py                Reference loading and interpolation
-  rocket_builder.py           RocketPy Rocket, motor, surfaces, parachute
-  simulation.py               RocketPy Flight execution and result export
-  utils.py                    Quaternion math and control-window helpers
+  constants.py                  Shared constants
+  controllers.py                Guidance, attitude PID, mixer, limits, diagnostics
+  environment_builder.py        RocketPy Environment construction
+  fin_model.py                  FinAdapter GenericSurface coefficient bridge
+  gen_reference.py              Reference generation helper
+  metrics.py                    Tracking and control metrics
+  plots.py                      Nominal simulation plot generation
+  reference.py                  Reference loading and interpolation
+  rocket_builder.py             RocketPy Rocket, motor, surfaces, parachute
+  simulation.py                 RocketPy Flight execution and result export
+  utils.py                      Quaternion math and control-window helpers
 tools/
-  sweep_gain_scale.py         Attitude gain-scale sweep up to apogee
-  trajectory-creator.py       Passive trajectory reference generation
-  tunning.py                  Pitch/roll identification and tuning support
+  calculate_control_coefficients.py  Control-surface coefficient estimation
+  sweep_gain_scale.py                Attitude gain-scale sweep up to apogee
+  trajectory-creator.py              Passive trajectory reference generation
+  tunning.py                         Pitch/roll identification and tuning support
 data/
   rockets/leon_2.toml
   motors/cesaroni_pro75_3g_3727l1050.csv
   drag/leon_2_drag.csv
+  trajectory/vertical.csv
   trajectory/85degree.csv
 results/
-  <run_id>/                   Nominal simulation outputs
-tools/results/sweep/          Gain sweep outputs
->>>>>>> alejandro
+  <run_id>/                     Nominal simulation outputs
+tools/results/sweep/            Gain sweep outputs
 ```
 
 ## Nominal Outputs
@@ -191,6 +160,7 @@ Each nominal run creates `results/<YYYYMMDD_HHMMSS>/` containing:
 - `flight_summary.csv`
 - `metrics.json`
 - `controller_diagnostics.csv`
+- `manifest.json`
 - `effective_config.json`
 - `rocket_definition.toml`
 - `rocket_artifacts.json`
@@ -199,45 +169,42 @@ Each nominal run creates `results/<YYYYMMDD_HHMMSS>/` containing:
 
 `simulation/` contains full-flight plots. `control/` contains plots focused on the active control phase.
 
+### `flight_history.csv`
+
+Complete simulation state at each timestep:
+
+- `time_s`, `x_local_m`, `y_local_m`, `z_local_m`: local ENU position.
+- `z_asl_m`: absolute altitude ASL.
+- `vx`, `vy`, `vz`: velocity in ENU.
+- `q0`, `q1`, `q2`, `q3`: attitude quaternion, ENU to Body.
+- `p`, `q`, `r`: body angular rates in rad/s.
+- `delta1` to `delta4`: fin deflections in rad for the four fins.
+
+### `flight_summary.csv`
+
+Key flight events:
+
+- Launch altitude ASL, max altitude ASL, and max local altitude.
+- Time of apogee and final time.
+- Max speed, control phase start/end/duration.
+- Max fin deflection and saturation ratio.
+
+### `metrics.json`
+
+Control performance metrics for the detected control phase:
+
+- `ctrl_mae_3d_m`: mean absolute 3D tracking error.
+- `ctrl_rmse_3d_m`: root mean square 3D error.
+- `ctrl_max_error_3d_m`: maximum 3D error.
+- `ctrl_mae_x_m`, `ctrl_mae_y_m`, `ctrl_mae_z_m`: per-axis MAE.
+- `max_fin_deflection_deg`, `fin_saturation_ratio`: actuation metrics.
+
+### Plot Directories
+
+Full-flight plots are written to `simulation/`. Active-control-window plots are written to `control/`. See [docs/plots.md](docs/plots.md) for the current plot list.
+
 ## Gain Sweep Outputs
 
-<<<<<<< HEAD
-## Auxiliary Tools
-
-The project includes auxiliary tools in the `tools/` directory to streamline trajectory generation, aerodynamic parameter estimation, and closed-loop controller tuning:
-
-### 1. Reference Trajectory Creator (`tools/trajectory-creator.py`)
-Generates a nominal 3D spatial reference trajectory in the local tangent ENU frame.
-- **Run Command**:
-  ```bash
-  uv run py tools/trajectory-creator.py
-  ```
-- **Notes**: Generates an ideal trajectory under no wind and no noise conditions. The generated file is saved to `data/trajectory/vertical.csv` by default.
-
-### 2. Aerodynamic Coefficient Calculator (`tools/calculate_control_coefficients.py`)
-Estimates lifting and induced drag aerodynamic force derivatives ($C_{N_\delta}$, $C_{y_\delta}$, $k$) based on the rocket body and tail fin geometries defined in the rocket TOML file.
-- **Run Command**:
-  ```bash
-  uv run py tools/calculate_control_coefficients.py
-  ```
-- **Notes**: Uses the subsonic Diederich lift-slope formulation with body-on-fin interference factors ($K_{TB}$). Outputs should be updated in the `[control_actuation]` section of the rocket TOML to align GenericSurface aerodynamics with geometry.
-
-### 3. Ziegler-Nichols Controller Auto-Tuning (`tools/tunning.py`)
-Excites the rocket via open-loop pulse and step fin commands at maximum dynamic pressure (max-Q, $t \approx 2.13$ s) to isolate and identify short-period system dynamics.
-- **Run Command**:
-  ```bash
-  uv run py tools/tunning.py
-  ```
-- **Identified Models**:
-  - **Pitch Loop**: Identifies a second-order underdamped transfer function relating pitch attitude ($\theta$) and rate ($\omega_x$) to fin commands:
-    $$G_{pitch}(s) = \frac{\Theta(s)}{\Delta(s)} = \frac{K_p \omega_n^2}{s^2 + 2\zeta\omega_n s + \omega_n^2}$$
-  - **Roll Loop**: Identifies a first-order rate lag model:
-    $$G_{roll}(s) = \frac{\Omega_z(s)}{\Delta_r(s)} = \frac{K_r}{\tau s + 1}$$
-- **Suggested Gains**: Prints recommended base PID gains derived using Ziegler-Nichols transient response methods.
-- **Diagnostics**: Generates time response fits, Bode plots, and pole-zero maps (saved in `tools/results/`):
-  - `pitch_modes.png`: Precise pole locations on an aspect-ratio-corrected 1:1 map with constant damping lines ($\zeta$) and natural frequency circles ($\omega_n$).
-  - `roll_modes.png`: Features the high-speed boundary layer roll damping pole at $s = -1/\tau \approx -200$ rad/s and the attitude integrator pole at $s = 0$.
-=======
 `tools/sweep_gain_scale.py` writes:
 
 - `tools/results/sweep/sweep_metrics.csv`
@@ -245,50 +212,9 @@ Excites the rocket via open-loop pulse and step fin commands at maximum dynamic 
 - `tools/results/sweep/apogee_altitude_vs_gain_scale.png`
 - `tools/results/sweep/all_metrics_vs_gain_scale.png`
 - `tools/results/sweep/metrics/*.png`
->>>>>>> alejandro
 
 The sweep CSV includes:
 
-<<<<<<< HEAD
-Each run creates `results/<YYYYMMDD_HHMMSS>/` with:
-
-### `flight_history.csv`
-Complete simulation state at each timestep:
-- `time_s`, `x_local_m`, `y_local_m`, `z_local_m`: Local ENU position
-- `z_asl_m`: Absolute altitude ASL
-- `vx`, `vy`, `vz`: Velocity in ENU
-- `q0`, `q1`, `q2`, `q3`: Attitude quaternion (ENU → Body)
-- `p`, `q`, `r`: Body angular rates (rad/s)
-- `delta1`-`delta4`: Fin deflections (rad) for the 4 fins (cross configuration)
-
-### `flight_summary.csv`
-Key flight events:
-- Launch altitude ASL, max altitude (ASL and local)
-- Time of apogee, final time
-- Max speed, control phase start/end/duration
-- Max fin deflection, saturation ratio
-
-### `metrics.json`
-Control performance metrics (control phase only):
-- `ctrl_mae_3d_m`: Mean absolute 3D tracking error
-- `ctrl_rmse_3d_m`: Root mean square 3D error
-- `ctrl_max_error_3d_m`: Maximum 3D error
-- `ctrl_mae_x_m`, `ctrl_mae_y_m`, `ctrl_mae_z_m`: Per-axis MAE
-- `max_fin_deflection_deg`, `fin_saturation_ratio`
-
-### `plots/` Directory
-10 analysis plots (see [docs/plots.md](docs/plots.md) for details):
-1. `trajectory_3d.png` - 3D trajectory comparison (full flight and control phase)
-2. `trajectory_2d_projections.png` - XY, XZ, and YZ projections (full flight and control phase)
-3. `position_per_axis.png` - Per-axis position tracking with optimized legend placement (control phase)
-4. `tracking_errors.png` - Tracking error norm and per-axis tracking deviations (control phase)
-5. `fin_actuation.png` - Fin deflection history and dynamic deflection limits (control phase)
-6. `attitude_euler.png` - Achievement versus command of roll, pitch, and yaw Euler angles (control phase)
-7. `body_rates.png` - Angular rates ($\omega_x, \omega_y, \omega_z$) for damping and vibration analysis (control phase)
-8. `velocity_per_axis.png` - Linear velocity tracking per axis (full flight and control phase)
-9. `cd_vs_mach.png` - Aerodynamic drag coefficient versus Mach number (full flight)
-10. `gain_evolution.png` - Gain scheduling dynamics showing pressure ($q$), scaling factor ($q_{scale}$), and active scheduled gains ($K_{p,attitude}$, $K_{p,roll}$) (control phase)
-=======
 - gain scale and active attitude gains
 - mean 3D error up to apogee
 - max 3D error up to apogee
@@ -301,7 +227,34 @@ Control performance metrics (control phase only):
 - reference altitude at simulated apogee time
 - apogee time
 - maximum fin deflection
->>>>>>> alejandro
+
+## Auxiliary Tools
+
+The project includes auxiliary tools in `tools/` to streamline trajectory generation, aerodynamic parameter estimation, gain sweeps, and controller tuning.
+
+### Reference Trajectory Creator
+
+```bash
+uv run py tools/trajectory-creator.py
+```
+
+Generates a nominal 3D spatial reference trajectory in the local ENU frame. The generated file is saved to `data/trajectory/vertical.csv` by default.
+
+### Aerodynamic Coefficient Calculator
+
+```bash
+uv run py tools/calculate_control_coefficients.py
+```
+
+Estimates lifting and induced drag aerodynamic force derivatives based on the rocket body and tail fin geometries defined in the rocket TOML file. Outputs should be applied to the `[control_actuation]` section of the rocket TOML.
+
+### Ziegler-Nichols Controller Auto-Tuning
+
+```bash
+uv run py tools/tunning.py
+```
+
+Excites the rocket with open-loop pulse and step fin commands near max-Q to identify short-period pitch and roll dynamics. The tool prints suggested base PID gains and writes diagnostic plots to `tools/results/`.
 
 ## Control Architecture
 
@@ -333,47 +286,35 @@ FinAdapter reads controller["current_deltas"]
 RocketPy GenericSurface coefficients
 ```
 
-<<<<<<< HEAD
-**Control activation**: Starts after `control_start_delay_s` (3s) AND above `control_start_min_height_above_launch_m` (derived: `rail_length_m + safety_margin_m`) AND while `vz > 0` (ascending) AND `t <= ref_time_limit` AND `vel_ref[2] > 0`.
+The controller activates after the configured delay and minimum height while the rocket and reference are still ascending. The simulation can be terminated at apogee by setting `config.terminate_on_apogee = True`.
 
-**Fins configuration**: Cross (+) with 4 fins:
-- Fin 1 (0°): Right
-- Fin 2 (90°): Top
-- Fin 3 (180°): Left
-- Fin 4 (270°): Bottom
+### Fin Configuration
 
-**Mixing law**:
-```
+Cross configuration with four fins:
+
+- Fin 1 at 0 degrees: right.
+- Fin 2 at 90 degrees: top.
+- Fin 3 at 180 degrees: left.
+- Fin 4 at 270 degrees: bottom.
+
+### Mixing Law
+
+```text
 d1 = -u_pitch + u_roll
 d2 = -u_yaw + u_roll
-d3 = u_pitch + u_roll
-d4 = u_yaw + u_roll
+d3 =  u_pitch + u_roll
+d4 =  u_yaw + u_roll
 ```
 
-**Rate limiting**: `delta_dot_max_rad_s` from TOML is enforced before saturation.
+`delta_dot_max_rad_s` from the rocket TOML is enforced before saturation.
 
 ## Known Limitations
 
-1. **RocketPy Private API**: Uses `_Controller` (private infrastructure). Future RocketPy versions may break compatibility. See `src/simulation.py` docstring for details.
-
-2. **Controller Sampling Mismatch**: The controller callback is sampled by RocketPy's ODE solver, which may not align exactly with `control_dt_s`. Nearest-neighbor lookup is used to reconcile timestamps.
-
-3. **Simplified Guidance**: PD guidance with gravity compensation (gravity obtained from RocketPy `Environment`). No optimal trajectory generation or feedforward terms.
-
-4. **No Wind/Gust Modeling**: Environment uses standard ISA atmosphere with no wind disturbances.
-
-5. **Quaternion Convention**: Ensure consistency between ENU→Body quaternion format (`[w, x, y, z]`) and RocketPy's internal representation.
-
-6. **Fin Rate Limiting**: Rate limiting (`delta_dot_max_rad_s`) is implemented in `controllers.py`, not in `FinAdapter`.
-
-7. **Single Reference**: Currently only vertical trajectory reference. Lateral trajectory tracking not validated.
-
-8. **No EKF/State Estimation**: Uses perfect state feedback from simulation. Real-world implementation would require sensor fusion.
-
-9. **Moment Derivatives**: `cm_delta` and `cn_delta` return 0.0 in `FinAdapter`. Moments are computed by RocketPy using CP-to-CG arm.
-=======
-The controller activates after the configured delay and minimum height while the rocket and reference are still ascending. The simulation can be terminated at apogee by setting `config.terminate_on_apogee = True`.
->>>>>>> alejandro
+1. RocketPy private API: `src/simulation.py` uses RocketPy private controller infrastructure, so the project is pinned to RocketPy v1.12.1.
+2. Controller sampling mismatch: RocketPy's ODE solver controls callback timing; nearest-neighbor lookup reconciles controller diagnostics with flight history.
+3. Simplified guidance: PD guidance uses simulated state feedback and does not implement optimal trajectory generation or onboard state estimation.
+4. Wind and disturbance validation is limited; the nominal environment uses standard atmosphere unless wind is explicitly enabled.
+5. Moment derivatives in `FinAdapter` return zero for pitch/yaw moments; RocketPy computes moments from the CP-to-CG arm.
 
 ## Documentation
 
@@ -383,6 +324,9 @@ The controller activates after the configured delay and minimum height while the
 - [Coordinate Systems](docs/coordinate_systems.md)
 - [Plots and Analysis](docs/plots.md)
 - [Gain Scale Sweep](docs/tools/sweep_gain_scale.md)
+- [Controller Auto-Tuning](docs/tools/tunning.md)
+- [Trajectory Creator](docs/tools/trajectory-creator.md)
+- [Control Coefficient Calculator](docs/tools/calculate_control_coefficients.md)
 - [controllers.py](docs/modules/controllers.md)
 - [environment_builder.py](docs/modules/environment_builder.md)
 - [fin_model.py](docs/modules/fin_model.md)
