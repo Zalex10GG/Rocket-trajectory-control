@@ -62,6 +62,27 @@ graph TD
 
 The controller state is a mutable dictionary. `FinAdapter` reads `controller["current_deltas"]` through a module-level state reference, so RocketPy coefficient evaluation always sees the latest command.
 
+## Fin Mixer Convention
+
+The controller uses the Siouris cruciform-fin mixer. With the four fin commands
+stored as `[d1, d2, d3, d4]`, pitch and yaw are differential pairs and roll is a
+common-mode deflection:
+
+```text
+d1 =  u_pitch + u_roll
+d2 =  u_yaw   + u_roll
+d3 = -u_pitch + u_roll
+d4 = -u_yaw   + u_roll
+```
+
+`FinAdapter` extracts the equivalent control deflections as:
+
+```text
+u_pitch = (d1 - d3) / 2
+u_yaw   = (d2 - d4) / 2
+u_roll  = mean(d1, d2, d3, d4)
+```
+
 ## Output Flow
 
 `src.simulation.export_results()` writes:

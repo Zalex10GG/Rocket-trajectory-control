@@ -60,8 +60,8 @@ q_error = q_ref * conjugate(q_real)
 
 The controller maps quaternion vector components to:
 
-- pitch error: `-q_error[1]`
-- yaw error: `-q_error[2]`
+- pitch error: `q_error[1]`
+- yaw error: `q_error[2]`
 - roll error: `q_error[3]`
 
 Pitch and yaw use `Kp_attitude`, `Ki_attitude`, and `Kd_attitude`. These are calculated properties from `config.py`:
@@ -86,16 +86,25 @@ q_scale = qbar_ref_pa / max(q_dynamic, q_min_cutoff_pa)
 
 ## Mixer
 
-The mixer maps pitch, yaw, and roll control outputs to four fin deflections:
+The mixer follows the Siouris cruciform-fin convention and maps pitch, yaw,
+and roll control outputs to four fin deflections. The array is zero-indexed in
+code, so `delta0..delta3` correspond to physical fins `d1..d4`:
 
 ```text
-delta0 = -pitch + roll
-delta1 = -yaw   + roll
-delta2 =  pitch + roll
-delta3 =  yaw   + roll
+delta0 =  pitch + roll
+delta1 =  yaw   + roll
+delta2 = -pitch + roll
+delta3 = -yaw   + roll
 ```
 
-The same convention is used by `src.fin_model.FinAdapter` when extracting pitch, yaw, and roll deflection components from `current_deltas`.
+The same convention is used by `src.fin_model.FinAdapter` when extracting
+pitch, yaw, and roll deflection components from `current_deltas`:
+
+```text
+pitch = (delta0 - delta2) / 2
+yaw   = (delta1 - delta3) / 2
+roll  = mean(delta0, delta1, delta2, delta3)
+```
 
 ## Limits And Anti-Windup
 

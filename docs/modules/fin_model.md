@@ -37,7 +37,10 @@ The adapter exposes RocketPy `Function` objects for:
 - `cn`: yaw moment coefficient, returned as zero
 - `cl`: roll moment coefficient from mean fin deflection
 
-Pitch, yaw, and roll deflection components are extracted as:
+Pitch, yaw, and roll deflection components are extracted with the same
+Siouris cruciform-fin convention used by `src.controllers`. The array is
+zero-indexed in code, so `delta0..delta3` correspond to physical fins
+`d1..d4`:
 
 ```text
 delta_pitch = (delta0 - delta2) / 2

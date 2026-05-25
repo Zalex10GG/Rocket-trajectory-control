@@ -299,11 +299,23 @@ Cross configuration with four fins:
 
 ### Mixing Law
 
+The mixer follows the Siouris cruciform-fin convention. With fins stored as
+`[d1, d2, d3, d4]`, pitch and yaw are differential pairs and roll is common
+mode across all fins:
+
 ```text
-d1 = -u_pitch + u_roll
-d2 = -u_yaw + u_roll
-d3 =  u_pitch + u_roll
-d4 =  u_yaw + u_roll
+d1 =  u_pitch + u_roll
+d2 =  u_yaw   + u_roll
+d3 = -u_pitch + u_roll
+d4 = -u_yaw   + u_roll
+```
+
+`FinAdapter` reads the same convention back as:
+
+```text
+u_pitch = (d1 - d3) / 2
+u_yaw   = (d2 - d4) / 2
+u_roll  = mean(d1, d2, d3, d4)
 ```
 
 `delta_dot_max_rad_s` from the rocket TOML is enforced before saturation.
