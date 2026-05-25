@@ -20,9 +20,10 @@ import src.reference as reference_mod
 import src.rocket_builder as rocket_builder
 import src.simulation as sim
 
+
 def main() -> None:
-    print("--- TFG Rocket Control Simulation ---")
-    
+    print("--- TFG Rocket Trajectory Control Simulation ---")
+
     # 1. Configuration and Data Loading
     config = cfg.load_config()
     case_data = init.load_initial_case_data(config)
@@ -30,14 +31,14 @@ def main() -> None:
     # 2. Loading reference trajectory
     print(f"Loading reference: {config.reference_path}")
     reference = reference_mod.load_reference_trajectory(config.reference_path)
-    
+
     # 3. Initialize Controller State
     controller = controllers.build_controller(config)
 
     # 4. Build Environment
     print("Building environment...")
     environment = env_builder.build_environment(case_data, config)
-    
+
     # 5. Build Rocket
     print(f"Building rocket from: {config.rocket_path}")
     rocket, components = rocket_builder.build_rocket(case_data, config, controller)
@@ -54,14 +55,23 @@ def main() -> None:
 
     # 7. Analysis and Results
     print("Computing metrics and generating plots...")
-    metrics = metrics_mod.compute_tracking_metrics(flight_history, reference, config, controller_state=controller)
-    
-    sim.export_results(
-        flight_history, reference, metrics, config, case_data,
-        rocket=rocket, components=components, controller=controller,
+    metrics = metrics_mod.compute_tracking_metrics(
+        flight_history, reference, config, controller_state=controller
     )
-    
+
+    sim.export_results(
+        flight_history,
+        reference,
+        metrics,
+        config,
+        case_data,
+        rocket=rocket,
+        components=components,
+        controller=controller,
+    )
+
     print("--- Simulation Complete ---")
+
 
 if __name__ == "__main__":
     main()
