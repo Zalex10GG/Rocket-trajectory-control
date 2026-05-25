@@ -19,6 +19,12 @@ ZYX Euler mapping used in ``quaternion_to_euler``:
 - index 0 (φ, x-rotation) → pitch
 - index 1 (θ, y-rotation) → yaw
 - index 2 (ψ, z-rotation) → roll_longitudinal
+
+Fin mixer follows Siouris cruciform-fin convention:
+- d1 =  p + r
+- d2 =  y + r
+- d3 = -p + r
+- d4 = -y + r
 """
 
 import numpy as np
@@ -233,8 +239,8 @@ def fin_controller(t, state, controller, config, reference, environment):
     # 5. Inner-loop Attitude PID (Body)
     q_ref = compute_desired_attitude(u_nose_cmd_enu)
     q_error = utils.quaternion_multiply(q_ref, utils.quaternion_conjugate(q_real))
-    e_pitch = -q_error[1]
-    e_yaw = -q_error[2]
+    e_pitch = q_error[1]
+    e_yaw = q_error[2]
     e_roll = q_error[3] # [w, x, y, z] -> [pitch, yaw, roll]
     
     # Store q_ref for plotting (keyed by time)
@@ -266,8 +272,9 @@ def fin_controller(t, state, controller, config, reference, environment):
     u_pitch_base = Kp_att * e_pitch - Kd_att * w_body[0]
     u_yaw_base = Kp_att * e_yaw - Kd_att * w_body[1]
     
-    # Mixer & Saturation check
-    def mix(p, y, r): return np.array([-p+r, -y+r, p+r, y+r])
+    # Mixer & Saturation check (Siouris cruciform-fin convention:
+    # eta = 0.5*(d1 - d3), zeta = 0.5*(d2 - d4), xi = mean(d))
+    def mix(p, y, r): return np.array([p+r, y+r, -p+r, -y+r])
     
     delta_limit = _compute_qbar_authority_limit(q_dynamic, config, controller)
     raw_deltas = mix(u_pitch_base + Ki_att * (integral[0] + e_pitch*dt),

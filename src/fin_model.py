@@ -100,6 +100,9 @@ class FinAdapter:
         """
         Lift coefficient (cL) increment from fin deflection.
 
+        Uses the Siouris cruciform-fin convention:
+        ``delta_pitch = (d1 - d3) / 2``.
+
         Only models the incremental control force.  Passive aerodynamic
         stability is handled by the ``TrapezoidalFins`` object in RocketPy.
 
@@ -114,7 +117,11 @@ class FinAdapter:
         return self.cN_delta * delta_pitch
 
     def cq_coeff(self, alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate):
-        """Side force coefficient (cQ) increment from fin deflection."""
+        """
+        Side force coefficient (cQ) increment from fin deflection.
+
+        Uses the Siouris convention: ``delta_yaw = (d2 - d4) / 2``.
+        """
         deltas = self.get_current_deltas()
         delta_yaw = (deltas[1] - deltas[3]) / 2.0
         return self.cy_delta * delta_yaw
@@ -134,7 +141,11 @@ class FinAdapter:
         return 0.0
 
     def cl_roll_coeff(self, alpha, beta, mach, reynolds, pitch_rate, yaw_rate, roll_rate):
-        """Roll moment coefficient (cl) from differential fin deflection."""
+        """
+        Roll moment coefficient (cl) from differential fin deflection.
+
+        Uses the Siouris convention: ``delta_roll = mean(d1, d2, d3, d4)``.
+        """
         deltas = self.get_current_deltas()
         delta_roll = np.mean(deltas)
         return self.cl_delta * delta_roll
