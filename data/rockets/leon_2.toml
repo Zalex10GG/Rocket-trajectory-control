@@ -64,5 +64,5 @@ coordinate_system_orientation = "nozzle_to_combustion_chamber"
 
 [parachute]
 name = "Main"
-cd_s = 10.0
+cd_s = 1.5
 trigger = "apogee"
