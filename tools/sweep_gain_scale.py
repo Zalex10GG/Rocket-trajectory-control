@@ -33,6 +33,7 @@ import src.environment_builder as env_builder
 import src.reference as reference_mod
 import src.rocket_builder as rocket_builder
 import src.simulation as sim
+from src.plots import save_figure
 
 
 OUTPUT_DIR = os.path.join("tools", "results", "sweep")
@@ -197,7 +198,7 @@ def save_sweep_plots(df, output_dir):
 
     fig.tight_layout()
     overview_path = os.path.join(output_dir, "sweep_error_summary.png")
-    fig.savefig(overview_path, dpi=150)
+    save_figure(fig, overview_path, dpi=150)
     plt.close(fig)
 
     altitude_path = os.path.join(output_dir, "apogee_altitude_vs_gain_scale.png")
@@ -222,7 +223,7 @@ def save_sweep_plots(df, output_dir):
     axis.grid(True)
     axis.legend()
     fig.tight_layout()
-    fig.savefig(altitude_path, dpi=150)
+    save_figure(fig, altitude_path, dpi=150)
     plt.close(fig)
 
     excluded_generic_columns = {
@@ -256,7 +257,7 @@ def save_sweep_plots(df, output_dir):
 
     fig.tight_layout()
     all_metrics_path = os.path.join(output_dir, "all_metrics_vs_gain_scale.png")
-    fig.savefig(all_metrics_path, dpi=150)
+    save_figure(fig, all_metrics_path, dpi=150)
     plt.close(fig)
 
     per_metric_dir = os.path.join(output_dir, "metrics")
@@ -264,6 +265,12 @@ def save_sweep_plots(df, output_dir):
     for filename in os.listdir(per_metric_dir):
         if filename.endswith(".png"):
             os.remove(os.path.join(per_metric_dir, filename))
+
+    per_metric_svg_dir = os.path.join(per_metric_dir, "svg")
+    if os.path.isdir(per_metric_svg_dir):
+        for filename in os.listdir(per_metric_svg_dir):
+            if filename.endswith(".svg"):
+                os.remove(os.path.join(per_metric_svg_dir, filename))
 
     for column in numeric_columns:
         fig, axis = plt.subplots(figsize=(8, 5))
@@ -277,7 +284,7 @@ def save_sweep_plots(df, output_dir):
         axis.set_title(f"{metric_title(column)} vs gain scale")
         axis.grid(True)
         fig.tight_layout()
-        fig.savefig(os.path.join(per_metric_dir, f"{column}.png"), dpi=150)
+        save_figure(fig, os.path.join(per_metric_dir, f"{column}.png"), dpi=150)
         plt.close(fig)
 
     return overview_path, altitude_path, all_metrics_path, per_metric_dir

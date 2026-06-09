@@ -16,6 +16,7 @@ from rocketpy import Flight, GenericMotor, Rocket
 
 from initial_data import load_initial_case_data
 from src.environment_builder import build_environment
+from src.plots import save_figure
 from config import load_config
 
 # --- EDITABLE CONSTANTS ---
@@ -102,7 +103,7 @@ def save_plot(plot_func, directory, filename):
     try:
         plot_func()
         if plt.get_fignums():
-            plt.savefig(path, bbox_inches="tight")
+            save_figure(plt.gcf(), path, bbox_inches="tight")
     finally:
         plt.show = original_show
         plt.close("all")

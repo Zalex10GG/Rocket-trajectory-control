@@ -13,6 +13,30 @@ import src.reference as ref_mod
 import src.utils as utils
 
 
+def save_figure(fig, path, **kwargs):
+    """
+    Save a Matplotlib figure to ``path`` and to ``svg/<same-stem>.svg``.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        Figure to save.
+    path : str
+        Primary destination file path.
+    **kwargs
+        Additional arguments forwarded to ``Figure.savefig``.
+    """
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+
+    fig.savefig(path, **kwargs)
+
+    stem = os.path.splitext(os.path.basename(path))[0]
+    svg_dir = os.path.join(directory, "svg")
+    os.makedirs(svg_dir, exist_ok=True)
+    fig.savefig(os.path.join(svg_dir, f"{stem}.svg"), format="svg", **kwargs)
+
+
 # ---------------------------------------------------------------------------
 # Helper: save RocketPy plots without interactive windows
 # ---------------------------------------------------------------------------
@@ -36,7 +60,7 @@ def save_rocketpy_plot(plot_func, path):
     try:
         plot_func()
         if plt.get_fignums():
-            plt.savefig(path, bbox_inches="tight")
+            save_figure(plt.gcf(), path, bbox_inches="tight")
     except Exception as e:
         print(f"WARNING: Failed to save RocketPy plot {path}: {e}")
     finally:
@@ -194,7 +218,7 @@ def _plot_trajectory_3d(pos_real, pos_ref, out_dir, label_prefix="", keep_open=F
     ax.set_zlabel("Up (m)")
     ax.set_title(f"{label_prefix}3D Trajectory Tracking (Local Origin)")
     ax.legend()
-    plt.savefig(os.path.join(out_dir, "trajectory_3d.png"))
+    save_figure(fig, os.path.join(out_dir, "trajectory_3d.png"))
     if not keep_open:
         plt.close(fig)
 
@@ -228,7 +252,7 @@ def _plot_trajectory_2d(pos_real, pos_ref, out_dir, label_prefix="", keep_open=F
     axes[2].axis("equal")
 
     plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, "trajectory_2d_projections.png"))
+    save_figure(fig, os.path.join(out_dir, "trajectory_2d_projections.png"))
     if not keep_open:
         plt.close(fig)
 
@@ -248,7 +272,7 @@ def _plot_position_per_axis(times, pos_real, pos_ref, out_dir, keep_open=False):
     axes[2].set_xlabel("Time (s)")
     fig.suptitle("Control Phase: Per-Axis Position Tracking")
     plt.tight_layout(rect=(0, 0.03, 1, 0.95))
-    plt.savefig(os.path.join(out_dir, "position_per_axis.png"))
+    save_figure(fig, os.path.join(out_dir, "position_per_axis.png"))
     if not keep_open:
         plt.close(fig)
 
@@ -274,7 +298,7 @@ def _plot_tracking_errors(times, pos_real, pos_ref, out_dir, keep_open=False):
     ax2.grid(True)
 
     plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, "tracking_errors.png"))
+    save_figure(fig, os.path.join(out_dir, "tracking_errors.png"))
     if not keep_open:
         plt.close(fig)
 
@@ -324,7 +348,7 @@ def _plot_fin_actuation(times, ctrl_history, out_dir, config, controller_state=N
     plt.title("Control Phase: Fin Actuation with Authority Limits")
     plt.legend()
     plt.grid(True)
-    plt.savefig(os.path.join(out_dir, "fin_actuation.png"))
+    save_figure(fig, os.path.join(out_dir, "fin_actuation.png"))
     if not keep_open:
         plt.close(fig)
 
@@ -373,7 +397,7 @@ def _plot_attitude_euler(times, ctrl_history, out_dir, label_prefix="Control Pha
     plt.title(f"{label_prefix}Rocket Attitude Tracking (Aerospace Euler)")
     plt.legend()
     plt.grid(True)
-    plt.savefig(os.path.join(out_dir, "attitude_euler.png"))
+    save_figure(fig, os.path.join(out_dir, "attitude_euler.png"))
     if not keep_open:
         plt.close(fig)
 
@@ -389,7 +413,7 @@ def _plot_body_rates(times, ctrl_history, out_dir, keep_open=False):
     plt.title("Control Phase: Body Angular Rates")
     plt.legend()
     plt.grid(True)
-    plt.savefig(os.path.join(out_dir, "body_rates.png"))
+    save_figure(fig, os.path.join(out_dir, "body_rates.png"))
     if not keep_open:
         plt.close(fig)
 
@@ -414,7 +438,7 @@ def _plot_velocity_per_axis(times, vel_real, vel_ref, out_dir, label_prefix="", 
     axes[2].set_xlabel("Time (s)")
     fig.suptitle(f"{label_prefix}Per-Axis Linear Velocity Tracking")
     plt.tight_layout(rect=(0, 0.03, 1, 0.95))
-    plt.savefig(os.path.join(out_dir, "velocity_per_axis.png"))
+    save_figure(fig, os.path.join(out_dir, "velocity_per_axis.png"))
     if not keep_open:
         plt.close(fig)
 
@@ -444,7 +468,7 @@ def _plot_cd_vs_mach(max_mach, config, out_dir, keep_open=False):
     plt.legend()
     plt.grid(True)
     
-    plt.savefig(os.path.join(out_dir, "cd_vs_mach.png"))
+    save_figure(fig, os.path.join(out_dir, "cd_vs_mach.png"))
     if not keep_open:
         plt.close(fig)
 
@@ -505,7 +529,7 @@ def _plot_gain_evolution(times, ctrl_history, out_dir, config, keep_open=False):
     ax2.set_title("Control Phase: Evolution of Active Proportional Gains")
     
     plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, "gain_evolution.png"))
+    save_figure(fig, os.path.join(out_dir, "gain_evolution.png"))
     if not keep_open:
         plt.close(fig)
 
@@ -572,6 +596,6 @@ def _plot_guidance_sources(controller_state, out_dir, keep_open=False):
     
     plt.tight_layout()
     os.makedirs(out_dir, exist_ok=True)
-    plt.savefig(os.path.join(out_dir, "guidance_sources.png"))
+    save_figure(fig, os.path.join(out_dir, "guidance_sources.png"))
     if not keep_open:
         plt.close(fig)

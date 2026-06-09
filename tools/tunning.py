@@ -44,6 +44,7 @@ import src.rocket_builder as rocket_builder
 from src.constants import CONTROL_SURFACE_NAME
 from rocketpy import Flight
 from rocketpy.control.controller import _Controller
+from src.plots import save_figure
 from src.utils import quaternion_conjugate, quaternion_multiply
 
 def load_nominal_case():
@@ -471,7 +472,7 @@ def plot_pitch_results(df, fit, zn, out_dir):
     axes[1].set_ylabel("q (deg/s)"); axes[1].legend(); axes[1].grid(True)
     axes[2].step(df["time_since_step_s"], df["delta_pitch_deg"], where='post')
     axes[2].set_ylabel("Delta (deg)"); axes[2].set_xlabel("Time (s)"); axes[2].grid(True)
-    fig1.tight_layout(); fig1.savefig(os.path.join(out_dir, "pitch_identification.png"))
+    fig1.tight_layout(); save_figure(fig1, os.path.join(out_dir, "pitch_identification.png"))
     plt.close(fig1)
 
     if fit["status"] != "ok":
@@ -487,7 +488,7 @@ def plot_pitch_results(df, fit, zn, out_dir):
     ax_m.semilogx(w, mag); ax_m.set_ylabel("Magnitude (dB)"); ax_m.grid(True, which="both")
     ax_p.semilogx(w, phase); ax_p.set_ylabel("Phase (deg)"); ax_p.set_xlabel("Frequency (rad/s)"); ax_p.grid(True, which="both")
     fig2.suptitle(f"Bode Plot | zeta={fit['zeta']:.3f}, wn={fit['wn']:.2f} rad/s")
-    fig2.savefig(os.path.join(out_dir, "pitch_bode.png"))
+    save_figure(fig2, os.path.join(out_dir, "pitch_bode.png"))
     plt.close(fig2)
     # Nichols
     fig3, ax_n = plt.subplots(figsize=(8, 8))
@@ -497,7 +498,7 @@ def plot_pitch_results(df, fit, zn, out_dir):
         h_loop = C * h; ax_n.plot(np.angle(h_loop, deg=True), 20 * np.log10(np.abs(h_loop)), '--', label="Loop L(s)")
     ax_n.set_xlabel("Phase (deg)"); ax_n.set_ylabel("Magnitude (dB)"); ax_n.grid(True); ax_n.legend()
     ax_n.set_title(f"Nichols Chart | zeta={fit['zeta']:.3f}, wn={fit['wn']:.2f} rad/s")
-    fig3.savefig(os.path.join(out_dir, "pitch_nichols.png"))
+    save_figure(fig3, os.path.join(out_dir, "pitch_nichols.png"))
     plt.close(fig3)
 
     # 3. Pole Map
@@ -521,7 +522,7 @@ def plot_pitch_results(df, fit, zn, out_dir):
     ax_map.set_xlabel("Real (1/s)"); ax_map.set_ylabel("Imag (rad/s)"); ax_map.set_title(f"Pole Map | zeta={fit['zeta']:.3f}, wn={fit['wn']:.2f} rad/s"); ax_map.set_aspect('equal')
     ax_map.legend(loc="upper left")
     max_p = max(fit['wn'] * 1.2, 10); ax_map.set_xlim(-max_p, max_p*0.1); ax_map.set_ylim(-max_p, max_p)
-    fig4.savefig(os.path.join(out_dir, "pitch_modes.png"))
+    save_figure(fig4, os.path.join(out_dir, "pitch_modes.png"))
     plt.close(fig4)
 
 
@@ -539,7 +540,7 @@ def plot_roll_results(df, fit, zn, out_dir):
     axes[1].set_ylabel("Roll rate (deg/s)"); axes[1].legend(); axes[1].grid(True)
     axes[2].step(df["time_since_step_s"], df["delta_roll_deg"], where='post')
     axes[2].set_ylabel("Delta (deg)"); axes[2].set_xlabel("Time (s)"); axes[2].grid(True)
-    fig1.tight_layout(); fig1.savefig(os.path.join(out_dir, "roll_identification.png"))
+    fig1.tight_layout(); save_figure(fig1, os.path.join(out_dir, "roll_identification.png"))
     plt.close(fig1)
 
     if fit["status"] != "ok":
@@ -555,7 +556,7 @@ def plot_roll_results(df, fit, zn, out_dir):
     ax_m.semilogx(w, mag); ax_m.set_ylabel("Magnitude (dB)"); ax_m.grid(True, which="both")
     ax_p.semilogx(w, phase); ax_p.set_ylabel("Phase (deg)"); ax_p.set_xlabel("Frequency (rad/s)"); ax_p.grid(True, which="both")
     fig2.suptitle(f"Roll Bode Plot | K={K:.3f}, tau={tau:.4f}s")
-    fig2.savefig(os.path.join(out_dir, "roll_bode.png"))
+    save_figure(fig2, os.path.join(out_dir, "roll_bode.png"))
     plt.close(fig2)
 
     # 3. Roll Pole Map
@@ -581,7 +582,7 @@ def plot_roll_results(df, fit, zn, out_dir):
     ax_map.set_ylim(-abs(pole)*0.5, abs(pole)*0.5)
     ax_map.set_aspect('equal', adjustable='box')
     
-    fig3.savefig(os.path.join(out_dir, "roll_modes.png"))
+    save_figure(fig3, os.path.join(out_dir, "roll_modes.png"))
     plt.close(fig3)
 
 
