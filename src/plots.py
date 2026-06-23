@@ -60,7 +60,11 @@ def save_rocketpy_plot(plot_func, path):
     try:
         plot_func()
         if plt.get_fignums():
-            save_figure(plt.gcf(), path, bbox_inches="tight")
+            fig = plt.gcf()
+            for ax in fig.axes:
+                if ax.get_ylabel() == "Static Margin (C)":
+                    ax.set_ylabel("Static Margin (calibers)")
+            save_figure(fig, path, bbox_inches="tight")
     except Exception as e:
         print(f"WARNING: Failed to save RocketPy plot {path}: {e}")
     finally:
@@ -143,10 +147,8 @@ def generate_all_plots(flight_history, reference, metrics, config, output_dir=No
     _plot_velocity_per_axis(times, vel_real_local, vel_ref_local_matched, sim_dir, label_prefix="Full Flight: ", has_ref=False, keep_open=show_plots)
     _plot_attitude_euler(times, flight_history, sim_dir, label_prefix="Full Flight: ", keep_open=show_plots)
     
-    # Drag Coefficient Cd vs Mach plot (capped at max flight Mach)
-    machs = np.array([s.get("mach", 0.0) for s in flight_history])
-    max_mach = np.max(machs) if len(machs) > 0 else 0.0
-    _plot_cd_vs_mach(max_mach, config, sim_dir, keep_open=show_plots)
+    # Passive drag curve loaded from the rocket CSV.
+    _plot_cd_vs_mach(config, sim_dir, keep_open=show_plots)
 
     # ------------------------------------------------------------------
     # plots/control/  (control phase only)
@@ -159,6 +161,8 @@ def generate_all_plots(flight_history, reference, metrics, config, output_dir=No
     _plot_velocity_per_axis(ctrl_times, vel_real_ctrl, vel_ref_ctrl, ctrl_dir, label_prefix="Control Phase: ", has_ref=True, keep_open=show_plots)
     _plot_trajectory_3d(pos_real_ctrl, pos_ref_ctrl, ctrl_dir, label_prefix="Control Phase: ", keep_open=show_plots)
     _plot_trajectory_2d(pos_real_ctrl, pos_ref_ctrl, ctrl_dir, label_prefix="Control Phase: ", keep_open=show_plots)
+    _plot_control_mach_vs_time(ctrl_times, ctrl_history, ctrl_dir, keep_open=show_plots)
+    _plot_control_drag_coefficients(ctrl_times, ctrl_history, config, controller_state, ctrl_dir, keep_open=show_plots)
     _plot_gain_evolution(ctrl_times, ctrl_history, ctrl_dir, config=config, keep_open=show_plots)
     _plot_guidance_sources(controller_state, ctrl_dir, keep_open=show_plots)
 
@@ -443,32 +447,87 @@ def _plot_velocity_per_axis(times, vel_real, vel_ref, out_dir, label_prefix="", 
         plt.close(fig)
 
 
-def _plot_cd_vs_mach(max_mach, config, out_dir, keep_open=False):
+def _plot_cd_vs_mach(config, out_dir, keep_open=False):
     import pandas as pd
     drag_df = pd.read_csv(config.drag_path)
-    
-    # Filter Cd data up to max flight Mach
-    filtered_df = drag_df[drag_df['mach'] <= max_mach]
-    
-    # Guard against empty filtered df if max_mach is very small
-    if filtered_df.empty:
-        filtered_df = drag_df.iloc[:2]
-        
+
     fig = plt.figure(figsize=(10, 6))
-    plt.plot(filtered_df['mach'], filtered_df['cd'], color='navy', linewidth=2, label='Base Drag Coefficient (Cd)')
-    
-    # Mark max mach point on the curve
-    max_cd = float(filtered_df['cd'].iloc[-1])
-    actual_max_mach = float(filtered_df['mach'].iloc[-1])
-    plt.scatter(actual_max_mach, max_cd, color='red', marker='o', s=60, label=f'Max Flight Mach ({actual_max_mach:.3f})')
-    
+    plt.plot(drag_df['mach'], drag_df['cd'], color="#1f77b4", linewidth=2, label='Base Drag Coefficient (Cd)')
+
     plt.xlabel("Mach Number")
     plt.ylabel("Drag Coefficient (Cd)")
-    plt.title("Base Drag Coefficient (Cd) vs Mach Number (Up to Max Flight Mach)")
+    plt.title("Base Drag Coefficient (Cd) vs Mach Number")
     plt.legend()
     plt.grid(True)
-    
+
     save_figure(fig, os.path.join(out_dir, "cd_vs_mach.png"))
+    if not keep_open:
+        plt.close(fig)
+
+
+def _plot_control_mach_vs_time(times, ctrl_history, out_dir, keep_open=False):
+    mach = np.array([max(0.0, s.get("mach", 0.0)) for s in ctrl_history], dtype=float)
+
+    fig = plt.figure(figsize=(10, 6))
+    plt.plot(times, mach, color="C0", linewidth=2, label="Mach")
+    if len(mach) > 0:
+        max_idx = int(np.argmax(mach))
+        plt.scatter(times[max_idx], mach[max_idx], color="C3", s=55, zorder=3,
+                    label=f"Max Mach ({mach[max_idx]:.3f})")
+    plt.xlabel("Time (s)")
+    plt.ylabel("Mach Number")
+    plt.title("Control Phase: Mach Number vs Time")
+    plt.legend(loc="best")
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    save_figure(fig, os.path.join(out_dir, "mach_vs_time.png"))
+    if not keep_open:
+        plt.close(fig)
+
+
+def _active_diagnostic_series(controller_state, field):
+    diag = controller_state.get("_diagnostics", []) if controller_state else []
+    latest_by_time = {}
+    for d in diag:
+        if d.get("control_active", False):
+            latest_by_time[float(d["time_s"])] = float(d.get(field, 0.0))
+    if not latest_by_time:
+        return np.array([]), np.array([])
+    times = np.array(sorted(latest_by_time.keys()), dtype=float)
+    values = np.array([latest_by_time[t] for t in times], dtype=float)
+    return times, values
+
+
+def _plot_control_drag_coefficients(times, ctrl_history, config, controller_state, out_dir, keep_open=False):
+    import pandas as pd
+
+    drag_df = pd.read_csv(config.drag_path).sort_values("mach")
+    csv_mach = drag_df["mach"].to_numpy(dtype=float)
+    csv_cd = drag_df["cd"].to_numpy(dtype=float)
+
+    mach = np.array([max(0.0, s.get("mach", 0.0)) for s in ctrl_history], dtype=float)
+    mach_clipped = np.clip(mach, csv_mach[0], csv_mach[-1])
+    cd_base = np.interp(mach_clipped, csv_mach, csv_cd)
+
+    diag_times, cd_control_diag = _active_diagnostic_series(controller_state, "effective_cD")
+    if len(diag_times) > 0:
+        cd_control = np.interp(times, diag_times, cd_control_diag, left=cd_control_diag[0], right=cd_control_diag[-1])
+    else:
+        cd_control = np.zeros_like(cd_base)
+
+    cd_total = cd_base + cd_control
+
+    fig = plt.figure(figsize=(10, 6))
+    plt.plot(times, cd_base, color="#1f77b4", linewidth=2, label="Base Cd from CSV")
+    plt.plot(times, cd_control, color="C1", linewidth=2, label="Control induced Cd")
+    plt.plot(times, cd_total, color="C3", linewidth=2, label="Approx. total Cd")
+    plt.xlabel("Time (s)")
+    plt.ylabel("Drag Coefficient (Cd)")
+    plt.title("Control Phase: Base, Control, and Approximate Total Drag Coefficients")
+    plt.legend(loc="best")
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    save_figure(fig, os.path.join(out_dir, "drag_coefficients.png"))
     if not keep_open:
         plt.close(fig)
 
