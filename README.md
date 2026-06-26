@@ -4,7 +4,7 @@
 
 This project implements a 6-DOF trajectory control simulation for a sounding rocket using rear-fin deflection. The flight physics are integrated with [RocketPy](https://github.com/RocketPy-Team/RocketPy) v1.12.1, using RocketPy's private `_Controller` infrastructure to run a closed-loop fin controller during integration.
 
-The active control architecture is rear-fin control through a RocketPy `GenericSurface` plus `FinAdapter`. Air brakes are not part of the control path.
+The active control architecture is rear-fin control through a RocketPy `GenericSurface` plus `FinAdapter`. 
 
 ## Quick Start
 
