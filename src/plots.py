@@ -569,7 +569,7 @@ def _plot_gain_evolution(times, ctrl_history, out_dir, config, keep_open=False):
     # Handle legends together
     lines, labels = ax1.get_legend_handles_labels()
     lines2, labels2 = ax1_twin.get_legend_handles_labels()
-    ax1.legend(lines + lines2, labels + labels2, loc="upper right")
+    ax1.legend(lines + lines2, labels + labels2, loc="upper center")
     ax1.set_title("Control Phase: Dynamic Pressure and Gain Scaling Factor")
     
     # Lower Plot: Evolution of active Kp gains
